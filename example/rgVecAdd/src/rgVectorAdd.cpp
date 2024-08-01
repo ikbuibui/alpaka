@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: ISC
  */
 
+#include "./rgMemCpy.hpp"
+
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExampleDefaultAcc.hpp>
 
@@ -93,7 +95,10 @@ auto main() -> int
     auto const devAcc = alpaka::getDevByIdx(platform, 0);
 
     // Create a queue on the device
-    QueueAcc queue(devAcc);
+    QueueAcc queue0(devAcc);
+    QueueAcc queue1(devAcc);
+    QueueAcc queue2(devAcc);
+
 
     // Define the work division
     Idx const numElements(123456);
@@ -160,28 +165,32 @@ auto main() -> int
     auto rg_bufAccC = redGrapes::IOResource<BufAcc, TTask>(alpaka::allocBuf<Data, Idx>(devAcc, extent));
 
     // Copy Host -> Acc
+
+    auto helper = RGHelper(rg);
+    helper.rgMemCpy(queue0, rg_bufAccA, rg_bufHostA);
+
     rg.emplace_task(
-        [queue](auto rg_bufHostA, auto rg_bufAccA) mutable
-        { alpaka::memcpy(queue, *rg_bufAccA.obj, *rg_bufHostA.obj); },
+        [queue0](auto rg_bufHostA, auto rg_bufAccA) mutable
+        { alpaka::memcpy(queue0, *rg_bufAccA.obj, *rg_bufHostA.obj); },
         rg_bufHostA.read(),
         rg_bufAccA.write());
 
     rg.emplace_task(
-        [queue](auto rg_bufHostB, auto rg_bufAccB) mutable
-        { alpaka::memcpy(queue, *rg_bufAccB.obj, *rg_bufHostB.obj); },
+        [queue1](auto rg_bufHostB, auto rg_bufAccB) mutable
+        { alpaka::memcpy(queue1, *rg_bufAccB.obj, *rg_bufHostB.obj); },
         rg_bufHostB.read(),
         rg_bufAccB.write());
 
     rg.emplace_task(
-        [queue](auto rg_bufHostC, auto rg_bufAccC) mutable
-        { alpaka::memcpy(queue, *rg_bufAccC.obj, *rg_bufHostC.obj); },
+        [queue2](auto rg_bufHostC, auto rg_bufAccC) mutable
+        { alpaka::memcpy(queue2, *rg_bufAccC.obj, *rg_bufHostC.obj); },
         rg_bufHostC.read(),
         rg_bufAccC.write());
 
 
     // Enqueue the kernel execution task
     rg.emplace_task(
-        [&queue, workDiv, numElements](auto rg_bufAccA, auto rg_bufAccB, auto rg_bufAccC)
+        [queue0, workDiv, numElements](auto rg_bufAccA, auto rg_bufAccB, auto rg_bufAccC) mutable
         {
             // Instantiate the kernel function object
             VectorAddKernel kernel;
@@ -194,7 +203,7 @@ auto main() -> int
                 alpaka::getPtrNative(*rg_bufAccB.obj),
                 alpaka::getPtrNative(*rg_bufAccC.obj),
                 numElements);
-            alpaka::enqueue(queue, taskKernel);
+            alpaka::enqueue(queue0, taskKernel);
         },
         rg_bufAccA.read(),
         rg_bufAccB.read(),
@@ -202,7 +211,8 @@ auto main() -> int
 
     // Copy back the result
     rg.emplace_task(
-        [&queue](auto rg_bufHostC, auto rg_bufAccC) { alpaka::memcpy(queue, *rg_bufHostC.obj, *rg_bufAccC.obj); },
+        [queue0](auto rg_bufHostC, auto rg_bufAccC) mutable
+        { alpaka::memcpy(queue0, *rg_bufHostC.obj, *rg_bufAccC.obj); },
         rg_bufHostC.write(),
         rg_bufAccC.read());
 
