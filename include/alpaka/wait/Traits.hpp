@@ -17,11 +17,11 @@ namespace alpaka
     namespace trait
     {
         //! The thread wait trait.
-        template<typename TAwaited, typename TSfinae = void>
+        template<typename TAwaited>
         struct CurrentThreadWaitFor;
 
         //! The waiter wait trait.
-        template<typename TWaiter, typename TAwaited, typename TSfinae = void>
+        template<typename TWaiter, typename TAwaited>
         struct WaiterWaitFor;
     } // namespace trait
 
