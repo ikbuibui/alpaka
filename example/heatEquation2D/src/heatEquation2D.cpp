@@ -103,6 +103,7 @@ struct HeatEquationKernel
 
         sdata[blockThreadIdx] = uCurrBuf[idx];
 
+        alpaka::syncBlockThreads(acc);
 
         // Each kernel executes one element
         double const r_x = dt / (dx * dx);
