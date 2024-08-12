@@ -197,7 +197,7 @@ auto example(TAccTag const&) -> int
 
     // simulation defines
     // Parameters (a user is supposed to change numNodesX, numTimeSteps)
-    constexpr alpaka::Vec<Dim, Idx> numNodes{10000, 10000}; // {Y, X}
+    constexpr alpaka::Vec<Dim, Idx> numNodes{8192, 8192}; // {Y, X}
     constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
 
 
@@ -226,7 +226,6 @@ auto example(TAccTag const&) -> int
     auto uCurrBufHost = alpaka::allocBuf<double, Idx>(devHost, extent);
 
     double* const pCurrHost = uCurrBufHost.data();
-    double* const pNextHost = uNextBufHost.data();
 
     // Accelerator buffer
     using BufAcc = alpaka::Buf<Acc, double, Dim, Idx>;
@@ -252,24 +251,11 @@ auto example(TAccTag const&) -> int
     QueueAcc queue1{devAcc};
     QueueAcc queue2{devAcc};
 
-    // apply boundary conditions
-    // TODO make sure we dont touch these
-    // Top and bottom are von neumann - y boundaries
-    // auto topRow = alpaka::createView(devHost, pCurrHost, extent[1]);
-    // auto topRowCopyFrom = alpaka::createView(devHost, &pCurrHost[extent[1]], extent[1]);
-    // auto bottomRow = alpaka::createView(devHost, &pCurrHost[(extent[0] - 1) * extent[1]], extent[1]);
-    // auto bottomRowCopyFrom = alpaka::createView(devHost, &pCurrHost[(extent[0] - 2) * extent[1]], extent[1]);
-
-    // alpaka::memcpy(queue1, topRow, topRowCopyFrom);
-    // alpaka::memcpy(queue2, bottomRow, bottomRowCopyFrom);
-
-    // left and right are dirichlet - x boundaries - not changed
-
     // Define a workdiv for the given problem
     constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
 
     // Appropriate chunk size for your Acc
-    constexpr alpaka::Vec<Dim, Idx> chunkSize{50u, 50u};
+    constexpr alpaka::Vec<Dim, Idx> chunkSize{16u, 16u};
     constexpr alpaka::Vec<Dim, Idx> chunkSizeWithHalo{chunkSize[0] + haloSize[0], chunkSize[1] + haloSize[1]};
     // TODO clean this
     auto const maxThreadsPerBlock = alpaka::getAccDevProps<Acc>(devAcc).m_blockThreadExtentMax;
