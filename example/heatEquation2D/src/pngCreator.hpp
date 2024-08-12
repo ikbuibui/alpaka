@@ -34,15 +34,15 @@ struct PngCreator
         std::stringstream step;
         step << std::setw(6) << std::setfill('0') << currentStep;
         std::string filename("heat_" + step.str() + ".png");
-        pngwriter png(extents[0], extents[1], 0, filename.c_str());
+        pngwriter png(extents[1], extents[0], 0, filename.c_str());
         png.setcompressionlevel(9);
 
-        for(int y = 0; y < extents[1]; ++y)
+        for(int y = 0; y < extents[0]; ++y)
         {
-            for(int x = 0; x < extents[0]; ++x)
+            for(int x = 0; x < extents[1]; ++x)
             {
-                float p = data[y * extents[0] + x];
-                png.plot(x + 1, extents[1] - y, p, 0., 1. - p);
+                float p = data[y * extents[1] + x];
+                png.plot(x + 1, extents[0] - y, p, 0., 1. - p);
             }
         }
         png.close();

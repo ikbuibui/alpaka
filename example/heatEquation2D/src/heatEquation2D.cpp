@@ -6,13 +6,38 @@
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExecuteForEachAccTag.hpp>
+#include <alpaka/idx/MapIdx.hpp>
+#include <alpaka/mem/global/DeviceGlobalCpu.hpp>
+#include <alpaka/vec/Vec.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <type_traits>
 #include <utility>
+
+// simulation parameters
+constexpr double sigma_sq = 1;
+// thermal conductivity assumed isostropic
+constexpr double kappa = 1;
+constexpr double tempMax = 1;
+
+//! Exact solution to the test problem
+//! u_t(x, t) = u_xx(x, t), x in [0, 1], t in [0, T]
+//! u(0, t) = u(1, t) = 0
+//! u(x, 0) = sin(pi * x)
+//! u(0, y) = sin(pi * y)
+//!
+//! \param x value of x
+//! \param x value of y
+//! \param t value of t
+ALPAKA_FN_HOST_ACC auto exactSolution(double const x, double const y, double const t) -> double
+{
+    return tempMax * std::exp((-1 * ((x * x) + (y * y))) / (sigma_sq + (4 * t * kappa)))
+           / std::sqrt(1 + (4 * t * kappa / sigma_sq));
+}
 
 //! alpaka version of explicit finite-difference 1d heat equation solver
 //!
@@ -29,120 +54,115 @@
 //! \param dx step in x
 //! \param dt step in t
 
-// template<size_t T_BlockSize1D>
-// struct HeatEquationKernel
-// {
-//     template<typename TAcc, typename T_Extent>
-//     ALPAKA_FN_ACC auto operator()(
-//         TAcc const& acc,
-//         double const* const uCurrBuf,
-//         double* const uNextBuf,
-//         T_Extent const extent,
-//         double const dx,
-//         double const dy,
-//         double const dt) const -> void
-//     {
-//         auto& sdata(alpaka::declareSharedVar<double[T_BlockSize1D], __COUNTER__>(acc));
-
-
-//         // Get extents(dimensions)
-//         auto const gridBlockExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc);
-//         auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
-//         // Get indexes
-//         auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
-//         auto const blockThreadIdx1D = alpaka::mapIdx<1u>(blockThreadIdx, blockThreadExtent)[0u];
-
-
-//         auto idx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
-//         auto idx1D = alpaka::mapIdx<1u>(idx, extent)[0u];
-
-//         sdata[blockThreadIdx1D] = uCurrBuf[idx1D];
-
-
-//         // Each kernel executes one element
-//         double const r_x = dt / (dx * dx);
-//         double const r_y = dt / (dy * dy);
-
-//         if(blockThreadIdx[0] > 0 && blockThreadIdx[0] < blockThreadExtent[0] - 1u && blockThreadIdx[1] > 0
-//            && blockThreadIdx[1] < blockThreadExtent[1] - 1u)
-//         {
-//             uNextBuf[idx1D] = sdata[blockThreadIdx1D] * (1.0 - 2.0 * r_x - 2.0 * r_y)
-//                               + sdata[blockThreadIdx1D - 1] * r_x + sdata[blockThreadIdx1D + 1] * r_x
-//                               + sdata[blockThreadIdx1D - blockThreadExtent[1]] * r_y
-//                               + sdata[blockThreadIdx1D + blockThreadExtent[1]] * r_y;
-//         }
-//         else if(idx[0] > 0 && idx[0] < extent[0] - 1u && idx[1] > 0 && idx[1] < extent[1] - 1u)
-//         {
-//             uNextBuf[idx1D] = uCurrBuf[idx1D] * (1.0 - 2.0 * r_x - 2.0 * r_y) + uCurrBuf[idx1D - 1] * r_x
-//                               + uCurrBuf[idx1D + 1] * r_x + uCurrBuf[idx1D - extent[1]] * r_y
-//                               + uCurrBuf[idx1D + extent[1]] * r_y;
-//         }
-//     }
-// };
 template<size_t T_ChunkSize1D>
 struct HeatEquationKernel
 {
-    template<typename TAcc, typename T_Halo>
+    template<typename TAcc, typename T_Chunk>
     ALPAKA_FN_ACC auto operator()(
         TAcc const& acc,
         double const* const uCurrBuf,
         double* const uNextBuf,
-        T_Halo const halo,
+        T_Chunk const chunkSize,
+        T_Chunk const extent,
+        uint32_t step,
         double const dx,
+        double const dy,
         double const dt) const -> void
     {
+        using Dim = alpaka::DimInt<2u>;
+        using Idx = uint32_t;
         auto& sdata(alpaka::declareSharedVar<double[T_ChunkSize1D], __COUNTER__>(acc));
 
         // Get extents(dimensions)
-        auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc)[0u];
-        auto const chunkSize = T_ChunkSize1D - halo;
-        auto const numElementsThread = (chunkSize - 1) / blockThreadExtent + 1;
+        auto const gridBlockExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc);
+        auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
+        auto const numThreadsPerBlock = blockThreadExtent.prod();
 
         // Get indexes
-        auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc)[0u];
-        auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0u];
+        auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc);
+        auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
+        auto const threadIdx1D = alpaka::mapIdx<1>(blockThreadIdx, blockThreadExtent)[0u];
         auto const blockStartIdx = gridBlockIdx * chunkSize;
-        auto const threadStartIdx = blockThreadIdx * numElementsThread;
 
+        constexpr T_Chunk guard{2, 2};
 
-        for(auto i = blockThreadIdx; i < T_ChunkSize1D; i += blockThreadExtent)
+        for(auto i = threadIdx1D; i < T_ChunkSize1D; i += numThreadsPerBlock)
         {
-            sdata[i] = uCurrBuf[blockStartIdx + i];
+            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize + guard);
+            idx2d = idx2d + blockStartIdx;
+            auto bufIdx = alpaka::mapIdx<1>(idx2d, extent)[0u];
+            sdata[i] = uCurrBuf[bufIdx];
         }
 
         alpaka::syncBlockThreads(acc);
 
         // Each kernel executes one element
-        double const r_x = dt / (dx * dx);
+        double const r_x = dt * kappa / (dx * dx);
+        double const r_y = dt * kappa / (dy * dy);
 
-        for(uint i = 0; i < numElementsThread; i++)
+        // go over only core cells
+        for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
         {
-            uNextBuf[blockStartIdx + threadStartIdx + i + 1] = sdata[1 + threadStartIdx + i] * (1.0 - 2.0 * r_x)
-                                                               + sdata[1 + threadStartIdx + i - 1] * r_x
-                                                               + sdata[1 + threadStartIdx + i + 1] * r_x;
+            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
+            idx2d = idx2d + T_Chunk{1, 1}; // offset for halo above and to the left
+            auto localIdx1D = alpaka::mapIdx<1>(idx2d, chunkSize + guard)[0u];
+
+
+            auto bufIdx = idx2d + blockStartIdx;
+            auto bufIdx1D = alpaka::mapIdx<1>(bufIdx, extent)[0u];
+
+            uNextBuf[bufIdx1D] = sdata[localIdx1D] * (1.0 - 2.0 * r_x - 2.0 * r_y) + sdata[localIdx1D - 1] * r_x
+                                 + sdata[localIdx1D + 1] * r_x + sdata[localIdx1D - chunkSize[1] - 2] * r_y
+                                 + sdata[localIdx1D + chunkSize[1] + 2] * r_y;
+        }
+
+        // apply boundary conditions
+        // top row
+        if(gridBlockIdx[0] == 0)
+        {
+            auto const globalIdx = blockStartIdx;
+            for(auto i = threadIdx1D; i < chunkSize[1] + guard[1]; i += numThreadsPerBlock)
+            {
+                auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(0, i);
+                auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
+                uNextBuf[bufIdx1D] = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+            }
+        }
+        if(gridBlockIdx[0] == gridBlockExtent[0] - 1)
+        {
+            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{chunkSize[0] + guard[0] - 1, 0};
+
+            for(auto i = threadIdx1D; i < chunkSize[1] + guard[1]; i += numThreadsPerBlock)
+            {
+                auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(0, i);
+                auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
+                uNextBuf[bufIdx1D] = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+            }
+        }
+        if(gridBlockIdx[1] == 0)
+        {
+            auto const globalIdx = blockStartIdx;
+
+            for(auto i = threadIdx1D; i < chunkSize[0] + guard[0]; i += numThreadsPerBlock)
+            {
+                auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(i, 0);
+                auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
+                uNextBuf[bufIdx1D] = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+            }
+        }
+        if(gridBlockIdx[1] == gridBlockExtent[1] - 1)
+        {
+            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{0, chunkSize[1] + guard[1] - 1};
+
+            for(auto i = threadIdx1D; i < chunkSize[0] + guard[0]; i += numThreadsPerBlock)
+            {
+                auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(i, 0);
+                auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
+                uNextBuf[bufIdx1D] = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+            }
         }
     }
 };
-
-//! Exact solution to the test problem
-//! u_t(x, t) = u_xx(x, t), x in [0, 1], t in [0, T]
-//! u(0, t) = u(1, t) = 0
-//! u(x, 0) = sin(pi * x)
-//! u(0, y) = sin(pi * y)
-//!
-//! \param x value of x
-//! \param x value of y
-//! \param t value of t
-// auto exactSolution(double const x, double const y, double const t) -> double
-// {
-//     constexpr double pi = 3.14159265358979323846;
-//     return std::exp(-pi * pi * t) * std::sin(pi * x) + std::exp(-pi * pi * t) * std::sin(pi * y);
-// }
-auto exactSolution(double const x, double const t) -> double
-{
-    constexpr double pi = 3.14159265358979323846;
-    return std::exp(-pi * pi * t) * std::sin(pi * x);
-}
 
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
@@ -162,7 +182,7 @@ auto example(TAccTag const&) -> int
         return EXIT_SUCCESS;
     }
     // Set Dim and Idx type
-    using Dim = alpaka::DimInt<1u>;
+    using Dim = alpaka::DimInt<2u>;
     using Idx = uint32_t;
 
     // Define the accelerator
@@ -177,28 +197,27 @@ auto example(TAccTag const&) -> int
 
     // simulation defines
     // Parameters (a user is supposed to change numNodesX, numTimeSteps)
-    constexpr uint32_t numNodesX = 1000;
-    constexpr uint32_t haloSize = 2;
+    constexpr alpaka::Vec<Dim, Idx> numNodes{10000, 10000}; // {Y, X}
+    constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
 
-    // constexpr uint32_t numNodesY = 500;
 
-    constexpr uint32_t numTimeSteps = 10000;
+    constexpr uint32_t numTimeSteps = 1000000;
     constexpr double tMax = 0.001;
     // x in [0, 1], t in [0, tMax]
-    constexpr double dx = 1.0 / static_cast<double>(numNodesX + haloSize - 1);
-    // constexpr double dy = 1.0 / static_cast<double>(numNodesY - 1);
-    constexpr double dt = tMax / static_cast<double>(numTimeSteps - 1);
+    constexpr double dx = 1.0 / static_cast<double>(numNodes[1] + haloSize[1] - 1);
+    constexpr double dy = 1.0 / static_cast<double>(numNodes[0] + haloSize[0] - 1);
+    constexpr double dt = tMax / static_cast<double>(numTimeSteps);
 
     // Check the stability condition
-    constexpr double r = dt / (dx * dx);
+    constexpr double r = dt * kappa / std ::min(dx * dx, dy * dy);
     if constexpr(r > 0.5)
     {
-        std::cerr << "Stability condition check failed: dt/dx^2 = " << r << ", it is required to be <= 0.5\n";
+        std::cerr << "Stability condition check failed: dt/min(dx^2,dy^2) = " << r
+                  << ", it is required to be <= 0.5\n";
         return EXIT_FAILURE;
     }
 
-    // constexpr alpaka::Vec<Dim, Idx> extent{numNodesY, numNodesX};
-    constexpr Idx extent{numNodesX + haloSize};
+    constexpr alpaka::Vec<Dim, Idx> extent = numNodes + haloSize;
 
     // Initialize host-buffer
     // This buffer holds the calculated values
@@ -206,8 +225,8 @@ auto example(TAccTag const&) -> int
     // This buffer will hold the current values (used for the next step)
     auto uCurrBufHost = alpaka::allocBuf<double, Idx>(devHost, extent);
 
-    double* const pCurrHost = std::data(uCurrBufHost);
-    double* const pNextHost = std::data(uNextBufHost);
+    double* const pCurrHost = uCurrBufHost.data();
+    double* const pNextHost = uNextBufHost.data();
 
     // Accelerator buffer
     using BufAcc = alpaka::Buf<Acc, double, Dim, Idx>;
@@ -215,63 +234,58 @@ auto example(TAccTag const&) -> int
     BufAcc uCurrBufAcc{alpaka::allocBuf<double, Idx>(devAcc, extent)};
 
 
-    double* pCurrAcc = std::data(uCurrBufAcc);
-    double* pNextAcc = std::data(uNextBufAcc);
+    double* pCurrAcc = uCurrBufAcc.data();
+    double* pNextAcc = uNextBufAcc.data();
 
     // Apply initial conditions for the test problem
-    // for(uint32_t j = 0; j < numNodesY; j++)
-    // {
-    //     for(uint32_t i = 0; i < numNodesX; i++)
-    //     {
-    //         pCurrHost[j * extent[1] + i] = exactSolution(i * dx, j * dy, 0.0);
-    //     }
-    // }
-    for(uint32_t i = 0; i < extent; i++)
+    for(uint32_t j = 0; j < extent[0]; j++)
     {
-        pCurrHost[i] = exactSolution(i * dx, 0.0);
+        for(uint32_t i = 0; i < extent[1]; i++)
+        {
+            pCurrHost[j * extent[1] + i] = exactSolution(i * dx, j * dy, 0.0);
+        }
     }
-
-    // Get valid workdiv for the given problem
-    // static constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
-    static constexpr Idx elemPerThread{1};
-
-    // Appropriate block size for your Acc
-    // TODO ask can be auto inferred from alpaka config
-    // static constexpr alpaka::Vec<Dim, Idx> blockSize{1, 1};
-    // static constexpr Idx blockSize{1};
-
-    // static constexpr alpaka::Vec<Dim, Idx> blockCount{
-    //     (extent[0] - 1) / blockSize[0] + 1,
-    //     (extent[1] - 1) / blockSize[1] + 1};
-    // static constexpr Idx blockCount{(numNodesX - 1) / blockSize + 1};
-    // todo check extent is divisble by chunk size
-    // static_assert
-    constexpr Idx chunkSize{50};
-    constexpr Idx numChunks{(numNodesX - 1) / chunkSize + 1};
-
-    auto const deviceProperties = alpaka::getAccDevProps<Acc>(devAcc);
-    auto const maxThreadsPerBlock = deviceProperties.m_blockThreadExtentMax[0];
-
-    auto const threadsPerBlock = std::min({maxThreadsPerBlock, chunkSize});
-
-    alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
-
-
-    // HeatEquationKernel<chunkSize.prod()> heatEqKernel;
-    HeatEquationKernel<chunkSize + haloSize> heatEqKernel;
-
-
-    // auto const& bundeledKernel = alpaka::KernelBundle(heatEqKernel, pCurrAcc, pNextAcc, extent, dx, dy, dt);
-    // auto const& bundeledKernel = alpaka::KernelBundle(heatEqKernel, pCurrAcc, pNextAcc, extent, dx, dt);
-
-    // Let alpaka calculate good block and grid sizes given our full problem extent
-    // auto const workDiv = alpaka::getValidWorkDivForKernel<Acc>(devAcc, bundeledKernel, extent, elemPerThread);
 
     // Select queue
     using QueueProperty = alpaka::NonBlocking;
     using QueueAcc = alpaka::Queue<Acc, QueueProperty>;
     QueueAcc queue1{devAcc};
     QueueAcc queue2{devAcc};
+
+    // apply boundary conditions
+    // TODO make sure we dont touch these
+    // Top and bottom are von neumann - y boundaries
+    // auto topRow = alpaka::createView(devHost, pCurrHost, extent[1]);
+    // auto topRowCopyFrom = alpaka::createView(devHost, &pCurrHost[extent[1]], extent[1]);
+    // auto bottomRow = alpaka::createView(devHost, &pCurrHost[(extent[0] - 1) * extent[1]], extent[1]);
+    // auto bottomRowCopyFrom = alpaka::createView(devHost, &pCurrHost[(extent[0] - 2) * extent[1]], extent[1]);
+
+    // alpaka::memcpy(queue1, topRow, topRowCopyFrom);
+    // alpaka::memcpy(queue2, bottomRow, bottomRowCopyFrom);
+
+    // left and right are dirichlet - x boundaries - not changed
+
+    // Define a workdiv for the given problem
+    constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
+
+    // Appropriate chunk size for your Acc
+    constexpr alpaka::Vec<Dim, Idx> chunkSize{50u, 50u};
+    constexpr alpaka::Vec<Dim, Idx> chunkSizeWithHalo{chunkSize[0] + haloSize[0], chunkSize[1] + haloSize[1]};
+    // TODO clean this
+    auto const maxThreadsPerBlock = alpaka::getAccDevProps<Acc>(devAcc).m_blockThreadExtentMax;
+    auto const threadsPerBlock = maxThreadsPerBlock.prod() < chunkSize.prod() ? maxThreadsPerBlock : chunkSize;
+
+    constexpr alpaka::Vec<Dim, Idx> numChunks{
+        (extent[0] - haloSize[0] - 1) / chunkSize[0] + 1,
+        (extent[1] - haloSize[1] - 1) / chunkSize[1] + 1};
+
+    static_assert(
+        (extent[0] - haloSize[0]) % chunkSize[0] == 0 && (extent[1] - haloSize[1]) % chunkSize[1] == 0,
+        "Domain must be divisible by chunk size");
+
+    alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
+
+    HeatEquationKernel<chunkSizeWithHalo.prod()> heatEqKernel;
 
     // Copy host -> device
     alpaka::memcpy(queue1, uCurrBufAcc, uCurrBufHost);
@@ -281,11 +295,11 @@ auto example(TAccTag const&) -> int
 
     // PngCreator createPng;
 
-    for(uint32_t step = 0; step < numTimeSteps; step++)
+    for(uint32_t step = 1; step <= numTimeSteps; step++)
     {
         // Compute next values
-        // alpaka::exec<Acc>(queue1, workDiv, heatEqKernel, pCurrAcc, pNextAcc, extent, dx, dy, dt);
-        alpaka::exec<Acc>(queue1, workDiv_manual, heatEqKernel, pCurrAcc, pNextAcc, haloSize, dx, dt);
+        alpaka::exec<
+            Acc>(queue1, workDiv_manual, heatEqKernel, pCurrAcc, pNextAcc, chunkSize, extent, step, dx, dy, dt);
 
         if(step % 100 == 0)
         {
@@ -305,25 +319,18 @@ auto example(TAccTag const&) -> int
     }
 
     // Copy device -> host
-    alpaka::memcpy(queue1, uNextBufHost, uNextBufAcc);
+    alpaka::memcpy(queue1, uCurrBufHost, uCurrBufAcc);
     alpaka::wait(queue1);
 
     // Calculate error
     double maxError = 0.0;
-    // for(uint32_t j = 0; j < numNodesY; j++)
-    // {
-    //     for(uint32_t i = 0; i < numNodesX; i++)
-    //     {
-    //         auto const error = std::abs(pNextHost[j * extent[1] + i] - exactSolution(i * dx, j * dy, tMax));
-    //         maxError = std::max(maxError, error);
-    //     }
-    // }
-
-
-    for(uint32_t i = 0; i < extent; i++)
+    for(uint32_t j = 1; j < extent[0] - 1; j++)
     {
-        auto const error = std::abs(pNextHost[i] - exactSolution(i * dx, tMax));
-        maxError = std::max(maxError, error);
+        for(uint32_t i = 1; i < extent[1] - 1; i++)
+        {
+            auto const error = std::abs(pCurrHost[j * extent[1] + i] - exactSolution(i * dx, j * dy, tMax));
+            maxError = std::max(maxError, error);
+        }
     }
 
     double const errorThreshold = 1e-5;
@@ -335,7 +342,7 @@ auto example(TAccTag const&) -> int
     }
     else
     {
-        std::cout << "Execution results incorrect: error = " << maxError << " (the grid resolution may be too low)"
+        std::cout << "Execution results incorrect: Max error = " << maxError << " (the grid resolution may be too low)"
                   << std::endl;
         return EXIT_FAILURE;
     }
