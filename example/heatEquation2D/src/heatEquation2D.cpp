@@ -18,14 +18,8 @@
 #include <type_traits>
 #include <utility>
 
-// simulation parameters
-constexpr double sigma_sq = 1;
-// thermal conductivity assumed isostropic
-constexpr double kappa = 1;
-constexpr double tempMax = 1;
-
 //! Exact solution to the test problem
-//! u_t(x, t) = u_xx(x, t), x in [0, 1], t in [0, T]
+//! u_t(x, y, t) = u_xx(x, t) + u_yy(y, t), x in [0, 1], y in [0, 1], t in [0, T]
 //! u(0, t) = u(1, t) = 0
 //! u(x, 0) = sin(pi * x)
 //! u(0, y) = sin(pi * y)
@@ -35,8 +29,8 @@ constexpr double tempMax = 1;
 //! \param t value of t
 ALPAKA_FN_HOST_ACC auto exactSolution(double const x, double const y, double const t) -> double
 {
-    return tempMax * std::exp((-1 * ((x * x) + (y * y))) / (sigma_sq + (4 * t * kappa)))
-           / std::sqrt(1 + (4 * t * kappa / sigma_sq));
+    constexpr double pi = 3.141592653589793238462643383279502884;
+    return std::exp(-pi * pi * t) * std::sin(pi * x) + std::exp(-pi * pi * t) * std::sin(pi * y);
 }
 
 //! alpaka version of explicit finite-difference 1d heat equation solver
@@ -64,13 +58,10 @@ struct HeatEquationKernel
         double* const uNextBuf,
         T_Chunk const chunkSize,
         T_Chunk const extent,
-        uint32_t step,
         double const dx,
         double const dy,
         double const dt) const -> void
     {
-        using Dim = alpaka::DimInt<2u>;
-        using Idx = uint32_t;
         auto& sdata(alpaka::declareSharedVar<double[T_ChunkSize1D], __COUNTER__>(acc));
 
         // Get extents(dimensions)
@@ -97,8 +88,8 @@ struct HeatEquationKernel
         alpaka::syncBlockThreads(acc);
 
         // Each kernel executes one element
-        double const r_x = dt * kappa / (dx * dx);
-        double const r_y = dt * kappa / (dy * dy);
+        double const r_x = dt / (dx * dx);
+        double const r_y = dt / (dy * dy);
 
         // go over only core cells
         for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
@@ -115,6 +106,50 @@ struct HeatEquationKernel
                                  + sdata[localIdx1D + 1] * r_x + sdata[localIdx1D - chunkSize[1] - 2] * r_y
                                  + sdata[localIdx1D + chunkSize[1] + 2] * r_y;
         }
+    }
+};
+
+//! alpaka version of explicit finite-difference 1d heat equation solver
+//!
+//! Applies boundary conditions
+//! forward difference in t and second-order central difference in x
+//!
+//! \param uNextBuf grid values of u for each x and the current value of t:
+//!                 u(x, t) | t = t_current
+//! \param uNext resulting grid values of u for each x and the next value of t:
+//!              u(x, t) | t = t_current + dt
+//! \param extent number of grid nodes in x (eq. to numNodesX)
+//! \param dx step in x
+//! \param dt step in t
+
+struct ApplyBoundariesKernel
+{
+    template<typename TAcc, typename T_Chunk>
+    ALPAKA_FN_ACC auto operator()(
+        TAcc const& acc,
+        double* const uNextBuf,
+        T_Chunk const chunkSize,
+        T_Chunk const extent,
+        uint32_t step,
+        double const dx,
+        double const dy,
+        double const dt) const -> void
+    {
+        using Dim = alpaka::DimInt<2u>;
+        using Idx = uint32_t;
+
+        // Get extents(dimensions)
+        auto const gridBlockExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc);
+        auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
+        auto const numThreadsPerBlock = blockThreadExtent.prod();
+
+        // Get indexes
+        auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc);
+        auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
+        auto const threadIdx1D = alpaka::mapIdx<1>(blockThreadIdx, blockThreadExtent)[0u];
+        auto const blockStartIdx = gridBlockIdx * chunkSize;
+
+        constexpr T_Chunk guard{2, 2};
 
         // apply boundary conditions
         // top row
@@ -197,11 +232,11 @@ auto example(TAccTag const&) -> int
 
     // simulation defines
     // Parameters (a user is supposed to change numNodesX, numTimeSteps)
-    constexpr alpaka::Vec<Dim, Idx> numNodes{8192, 8192}; // {Y, X}
+    constexpr alpaka::Vec<Dim, Idx> numNodes{512, 1024}; // {Y, X}
     constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
 
 
-    constexpr uint32_t numTimeSteps = 1000000;
+    constexpr uint32_t numTimeSteps = 10000;
     constexpr double tMax = 0.001;
     // x in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(numNodes[1] + haloSize[1] - 1);
@@ -209,7 +244,7 @@ auto example(TAccTag const&) -> int
     constexpr double dt = tMax / static_cast<double>(numTimeSteps);
 
     // Check the stability condition
-    constexpr double r = dt * kappa / std ::min(dx * dx, dy * dy);
+    constexpr double r = dt / std ::min(dx * dx, dy * dy);
     if constexpr(r > 0.5)
     {
         std::cerr << "Stability condition check failed: dt/min(dx^2,dy^2) = " << r
@@ -272,11 +307,9 @@ auto example(TAccTag const&) -> int
     alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
 
     HeatEquationKernel<chunkSizeWithHalo.prod()> heatEqKernel;
-
+    ApplyBoundariesKernel boundariesKernel;
     // Copy host -> device
     alpaka::memcpy(queue1, uCurrBufAcc, uCurrBufHost);
-    // Copy to the buffer for next as well to have boundary values set
-    alpaka::memcpy(queue1, uNextBufAcc, uCurrBufAcc);
     alpaka::wait(queue1);
 
     // PngCreator createPng;
@@ -284,24 +317,19 @@ auto example(TAccTag const&) -> int
     for(uint32_t step = 1; step <= numTimeSteps; step++)
     {
         // Compute next values
-        alpaka::exec<
-            Acc>(queue1, workDiv_manual, heatEqKernel, pCurrAcc, pNextAcc, chunkSize, extent, step, dx, dy, dt);
+        alpaka::exec<Acc>(queue1, workDiv_manual, heatEqKernel, pCurrAcc, pNextAcc, chunkSize, extent, dx, dy, dt);
+        alpaka::exec<Acc>(queue1, workDiv_manual, boundariesKernel, pNextAcc, chunkSize, extent, step, dx, dy, dt);
 
-        if(step % 100 == 0)
+        if(step % 100 == 0) // even steps will have currBufHost and PCurr pointing to same buffer
         {
+            alpaka::memcpy(queue2, uCurrBufHost, uCurrBufAcc);
             alpaka::wait(queue2);
-            // createPng(step, pCurrHost, extent);
+            // createPng(step - 1, pCurrHost, extent);
         }
 
-        // We assume the boundary conditions are constant and so these values
-        // do not need to be updated.
         // So we just swap next to curr (shallow copy)
         alpaka::wait(queue1);
         std::swap(pCurrAcc, pNextAcc);
-        if(step % 100 == 0)
-        {
-            alpaka::memcpy(queue2, uCurrBufHost, uCurrBufAcc);
-        }
     }
 
     // Copy device -> host
