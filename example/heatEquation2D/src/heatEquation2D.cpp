@@ -155,8 +155,8 @@ struct ApplyBoundariesKernel
         // top row
         if(gridBlockIdx[0] == 0)
         {
-            auto const globalIdx = blockStartIdx;
-            for(auto i = threadIdx1D; i < chunkSize[1] + guard[1]; i += numThreadsPerBlock)
+            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>(0, 1) ;
+            for(auto i = threadIdx1D; i < chunkSize[1]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(0, i);
                 auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
@@ -165,9 +165,9 @@ struct ApplyBoundariesKernel
         }
         if(gridBlockIdx[0] == gridBlockExtent[0] - 1)
         {
-            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{chunkSize[0] + guard[0] - 1, 0};
+            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{chunkSize[0] + 1, 1};
 
-            for(auto i = threadIdx1D; i < chunkSize[1] + guard[1]; i += numThreadsPerBlock)
+            for(auto i = threadIdx1D; i < chunkSize[1]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(0, i);
                 auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
@@ -176,9 +176,9 @@ struct ApplyBoundariesKernel
         }
         if(gridBlockIdx[1] == 0)
         {
-            auto const globalIdx = blockStartIdx;
+            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>(1,0) ;
 
-            for(auto i = threadIdx1D; i < chunkSize[0] + guard[0]; i += numThreadsPerBlock)
+            for(auto i = threadIdx1D; i < chunkSize[0]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(i, 0);
                 auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
@@ -187,9 +187,9 @@ struct ApplyBoundariesKernel
         }
         if(gridBlockIdx[1] == gridBlockExtent[1] - 1)
         {
-            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{0, chunkSize[1] + guard[1] - 1};
+            auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{1, chunkSize[1] + 1};
 
-            for(auto i = threadIdx1D; i < chunkSize[0] + guard[0]; i += numThreadsPerBlock)
+            for(auto i = threadIdx1D; i < chunkSize[0]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(i, 0);
                 auto bufIdx1D = alpaka::mapIdx<1>(idx2D, extent)[0u];
