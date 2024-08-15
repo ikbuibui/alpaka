@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: ISC
  */
 
-// #include "pngCreator.hpp"
+#include "pngCreator.hpp"
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/core/Common.hpp>
@@ -325,7 +325,7 @@ auto example(TAccTag const&) -> int
     alpaka::memcpy(queue1, uCurrBufAcc, uCurrBufHost);
     alpaka::wait(queue1);
 
-    // PngCreator createPng;
+    PngCreator createPng;
 
     for(uint32_t step = 1; step <= numTimeSteps; step++)
     {
@@ -339,7 +339,7 @@ auto example(TAccTag const&) -> int
         {
             alpaka::memcpy(queue2, uCurrBufHost, uCurrBufAcc);
             alpaka::wait(queue2);
-            // createPng(step - 1, pCurrHost, extent);
+            createPng(step - 1, pCurrHost, extent);
         }
 
         // So we just swap next to curr (shallow copy)
