@@ -10,7 +10,7 @@
 
 //! alpaka version of explicit finite-difference 2D heat equation solver
 //!
-//! \tparam T_BlockSize1D size of the shared memory box
+//! \tparam T_SharedMemSize1D size of the shared memory box
 //!
 //! Solving equation u_t(x, t) = u_xx(x, t) + u_yy(y, t) using a simple explicit scheme with
 //! forward difference in t and second-order central difference in x and y
@@ -22,7 +22,7 @@
 //! \param dx step in x
 //! \param dt step in t
 
-template<size_t T_ChunkSize1D>
+template<size_t T_SharedMemSize1D>
 struct StencilKernel
 {
     template<typename TAcc, typename TDim, typename TIdx>
@@ -36,7 +36,7 @@ struct StencilKernel
         double const dy,
         double const dt) const -> void
     {
-        auto& sdata(alpaka::declareSharedVar<double[T_ChunkSize1D], __COUNTER__>(acc));
+        auto& sdata(alpaka::declareSharedVar<double[T_SharedMemSize1D], __COUNTER__>(acc));
 
         // Get extents(dimensions)
         auto const gridBlockExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc);
@@ -49,11 +49,11 @@ struct StencilKernel
         auto const threadIdx1D = alpaka::mapIdx<1>(blockThreadIdx, blockThreadExtent)[0u];
         auto const blockStartIdx = gridBlockIdx * chunkSize;
 
-        constexpr alpaka::Vec<TDim, TIdx> guard{2, 2};
+        constexpr alpaka::Vec<TDim, TIdx> halo{2, 2};
 
-        for(auto i = threadIdx1D; i < T_ChunkSize1D; i += numThreadsPerBlock)
+        for(auto i = threadIdx1D; i < T_SharedMemSize1D; i += numThreadsPerBlock)
         {
-            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize + guard);
+            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize + halo);
             idx2d = idx2d + blockStartIdx;
             auto elem = getElementPtr(uCurrBuf, idx2d, pitch);
             sdata[i] = *elem;
@@ -70,7 +70,7 @@ struct StencilKernel
         {
             auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
             idx2d = idx2d + alpaka::Vec<TDim, TIdx>{1, 1}; // offset for halo above and to the left
-            auto localIdx1D = alpaka::mapIdx<1>(idx2d, chunkSize + guard)[0u];
+            auto localIdx1D = alpaka::mapIdx<1>(idx2d, chunkSize + halo)[0u];
 
 
             auto bufIdx = idx2d + blockStartIdx;

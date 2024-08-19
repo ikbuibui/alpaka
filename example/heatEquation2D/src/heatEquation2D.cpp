@@ -103,7 +103,7 @@ auto example(TAccTag const&) -> int
     // Appropriate chunk size for your Acc
     constexpr alpaka::Vec<Dim, Idx> chunkSize{16u, 16u};
     constexpr alpaka::Vec<Dim, Idx> chunkSizeWithHalo{chunkSize[0] + haloSize[0], chunkSize[1] + haloSize[1]};
-    // TODO clean this
+
     auto const maxThreadsPerBlock = alpaka::getAccDevProps<Acc>(devAcc).m_blockThreadExtentMax;
     auto const threadsPerBlock = maxThreadsPerBlock.prod() < chunkSize.prod() ? maxThreadsPerBlock : chunkSize;
 
