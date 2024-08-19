@@ -33,7 +33,7 @@ ALPAKA_FN_HOST_ACC auto exactSolution(double const x, double const y, double con
 //! \param tMax time at simulation end
 
 template<typename T_Buffer, typename T_Extent>
-ALPAKA_FN_HOST_ACC auto validateSolution(
+auto validateSolution(
     T_Buffer const& buffer,
     T_Extent const& extent,
     double const dx,
@@ -63,8 +63,7 @@ ALPAKA_FN_HOST_ACC auto validateSolution(
 //! \param dy
 
 template<typename T_Buffer, typename T_Extent>
-ALPAKA_FN_HOST_ACC auto initalizeBuffer(T_Buffer& buffer, T_Extent const& extent, double const dx, double const dy)
-    -> void
+auto initalizeBuffer(T_Buffer& buffer, T_Extent const& extent, double const dx, double const dy) -> void
 {
     // Apply initial conditions for the test problem
     for(uint32_t j = 0; j < extent[0]; ++j)
