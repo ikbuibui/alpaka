@@ -50,15 +50,16 @@ auto example(TAccTag const&) -> int
     auto const devAcc = alpaka::getDevByIdx(platformAcc, 0);
 
     // simulation defines
-    // Parameters (a user is supposed to change numNodesX, numTimeSteps)
+    // Parameters
     constexpr alpaka::Vec<Dim, Idx> numNodes{512, 1024}; // {Y, X}
     constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
+    constexpr alpaka::Vec<Dim, Idx> extent = numNodes + haloSize;
 
     constexpr uint32_t numTimeSteps = 10000;
     constexpr double tMax = 0.001;
     // x, y in [0, 1], t in [0, tMax]
-    constexpr double dx = 1.0 / static_cast<double>(numNodes[1] + haloSize[1] - 1);
-    constexpr double dy = 1.0 / static_cast<double>(numNodes[0] + haloSize[0] - 1);
+    constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
+    constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
     constexpr double dt = tMax / static_cast<double>(numTimeSteps);
 
     // Check the stability condition
@@ -70,8 +71,6 @@ auto example(TAccTag const&) -> int
         return EXIT_FAILURE;
     }
 
-    constexpr alpaka::Vec<Dim, Idx> extent = numNodes + haloSize;
-
     // Initialize host-buffer
     // This buffer will hold the current values (used for the next step)
     auto uBufHost = alpaka::allocBuf<double, Idx>(devHost, extent);
@@ -80,9 +79,6 @@ auto example(TAccTag const&) -> int
     using BufAcc = alpaka::Buf<Acc, double, Dim, Idx>;
     BufAcc uNextBufAcc{alpaka::allocBuf<double, Idx>(devAcc, extent)};
     BufAcc uCurrBufAcc{alpaka::allocBuf<double, Idx>(devAcc, extent)};
-
-    double* pCurrAcc = uCurrBufAcc.data();
-    double* pNextAcc = uNextBufAcc.data();
 
     // Set buffer to initial conditions
     initalizeBuffer(uBufHost, extent, dx, dy);
@@ -99,8 +95,7 @@ auto example(TAccTag const&) -> int
 
     // Define a workdiv for the given problem
     constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
-
-    // Appropriate chunk size for your Acc
+    // Appropriate chunk size to split your problem for your Acc
     constexpr alpaka::Vec<Dim, Idx> chunkSize{16u, 16u};
     constexpr alpaka::Vec<Dim, Idx> chunkSizeWithHalo{chunkSize[0] + haloSize[0], chunkSize[1] + haloSize[1]};
 
@@ -125,9 +120,30 @@ auto example(TAccTag const&) -> int
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {
         // Compute next values
-        alpaka::exec<
-            Acc>(queue1, workDiv_manual, stencilKernel, pCurrAcc, pNextAcc, chunkSize, pitchCurrAcc, dx, dy, dt);
-        alpaka::exec<Acc>(queue1, workDiv_manual, boundaryKernel, pNextAcc, chunkSize, pitchCurrAcc, step, dx, dy, dt);
+        alpaka::exec<Acc>(
+            queue1,
+            workDiv_manual,
+            stencilKernel,
+            uCurrBufAcc.data(),
+            uNextBufAcc.data(),
+            chunkSize,
+            pitchCurrAcc,
+            dx,
+            dy,
+            dt);
+
+        // apply boundaries
+        alpaka::exec<Acc>(
+            queue1,
+            workDiv_manual,
+            boundaryKernel,
+            uNextBufAcc.data(),
+            chunkSize,
+            pitchCurrAcc,
+            step,
+            dx,
+            dy,
+            dt);
 
         if(step % 100 == 0) // even steps will have currBufHost and PCurr pointing to same buffer
         {
@@ -138,7 +154,6 @@ auto example(TAccTag const&) -> int
 
         // So we just swap next to curr (shallow copy)
         alpaka::wait(queue1);
-        std::swap(pCurrAcc, pNextAcc);
         std::swap(uNextBufAcc, uCurrBufAcc);
     }
 

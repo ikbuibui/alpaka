@@ -15,11 +15,14 @@
 //! Solving equation u_t(x, t) = u_xx(x, t) + u_yy(y, t) using a simple explicit scheme with
 //! forward difference in t and second-order central difference in x and y
 //!
-//! \param uCurrBuf grid values of u for each x and the current value of t:
+//! \param uCurrBuf Current buffer with grid values of u for each x and the current value of t:
 //!                 u(x, y, t) | t = t_current
-//! \param uNext resulting grid values of u for each x and the next value of t:
+//! \param uNextBuf resulting grid values of u for each x and the next value of t:
 //!              u(x, y, t) | t = t_current + dt
+//! \param chunkSize
+//! \param pitch
 //! \param dx step in x
+//! \param dy step in y
 //! \param dt step in t
 
 template<size_t T_SharedMemSize1D>

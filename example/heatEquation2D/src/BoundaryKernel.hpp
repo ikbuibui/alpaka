@@ -14,12 +14,12 @@
 //! Applies boundary conditions
 //! forward difference in t and second-order central difference in x
 //!
-//! \param uNextBuf grid values of u for each x and the current value of t:
-//!                 u(x, t) | t = t_current
-//! \param uNext resulting grid values of u for each x and the next value of t:
-//!              u(x, t) | t = t_current + dt
-//! \param extent number of grid nodes in x (eq. to numNodesX)
+//! \param uBuf grid values of u for each x, y and the current value of t:
+//!                 u(x, y, t)  | t = t_current
+//! \param chunkSize
+//! \param pitch
 //! \param dx step in x
+//! \param dy step in y
 //! \param dt step in t
 
 struct BoundaryKernel
