@@ -6,7 +6,10 @@
 #include "BoundaryKernel.hpp"
 #include "StencilKernel.hpp"
 #include "analyticalSolution.hpp"
-#include "writeImage.hpp"
+
+#ifdef PNGWRITER_ENABLED
+#    include "writeImage.hpp"
+#endif
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExecuteForEachAccTag.hpp>
@@ -145,12 +148,14 @@ auto example(TAccTag const&) -> int
             dy,
             dt);
 
+#ifdef PNGWRITER_ENABLED
         if(step % 100 == 0) // even steps will have currBufHost and PCurr pointing to same buffer
         {
             alpaka::memcpy(queue2, uBufHost, uCurrBufAcc);
             alpaka::wait(queue2);
             writeImage(step - 1, uBufHost, extent);
         }
+#endif
 
         // So we just swap next to curr (shallow copy)
         alpaka::wait(queue1);

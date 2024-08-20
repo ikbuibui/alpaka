@@ -24,12 +24,12 @@
 
 struct BoundaryKernel
 {
-    template<typename TAcc, typename T_Chunk>
+    template<typename TAcc, typename TChunk>
     ALPAKA_FN_ACC auto operator()(
         TAcc const& acc,
         double* const uBuf,
-        T_Chunk const chunkSize,
-        T_Chunk const pitch,
+        TChunk const chunkSize,
+        TChunk const pitch,
         uint32_t step,
         double const dx,
         double const dy,

@@ -15,9 +15,9 @@
 //! Solving equation u_t(x, t) = u_xx(x, t) + u_yy(y, t) using a simple explicit scheme with
 //! forward difference in t and second-order central difference in x and y
 //!
-//! \param uCurrBuf Current buffer with grid values of u for each x and the current value of t:
+//! \param uCurrBuf Current buffer with grid values of u for each x, y pair and the current value of t:
 //!                 u(x, y, t) | t = t_current
-//! \param uNextBuf resulting grid values of u for each x and the next value of t:
+//! \param uNextBuf resulting grid values of u for each x, y pair and the next value of t:
 //!              u(x, y, t) | t = t_current + dt
 //! \param chunkSize
 //! \param pitch
@@ -65,23 +65,23 @@ struct StencilKernel
         alpaka::syncBlockThreads(acc);
 
         // Each kernel executes one element
-        double const r_x = dt / (dx * dx);
-        double const r_y = dt / (dy * dy);
+        double const rX = dt / (dx * dx);
+        double const rY = dt / (dy * dy);
 
         // go over only core cells
         for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
         {
-            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
-            idx2d = idx2d + alpaka::Vec<TDim, TIdx>{1, 1}; // offset for halo above and to the left
-            auto localIdx1D = alpaka::mapIdx<1>(idx2d, chunkSize + halo)[0u];
+            auto idx2D = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
+            idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1}; // offset for halo above and to the left
+            auto localIdx1D = alpaka::mapIdx<1>(idx2D, chunkSize + halo)[0u];
 
 
-            auto bufIdx = idx2d + blockStartIdx;
+            auto bufIdx = idx2D + blockStartIdx;
             auto elem = getElementPtr(uNextBuf, bufIdx, pitch);
 
-            *elem = sdata[localIdx1D] * (1.0 - 2.0 * r_x - 2.0 * r_y) + sdata[localIdx1D - 1] * r_x
-                    + sdata[localIdx1D + 1] * r_x + sdata[localIdx1D - chunkSize[1] - 2] * r_y
-                    + sdata[localIdx1D + chunkSize[1] + 2] * r_y;
+            *elem = sdata[localIdx1D] * (1.0 - 2.0 * rX - 2.0 * rY) + sdata[localIdx1D - 1] * rX
+                    + sdata[localIdx1D + 1] * rX + sdata[localIdx1D - chunkSize[1] - halo[1]] * rY
+                    + sdata[localIdx1D + chunkSize[1] + halo[1]] * rY;
         }
     }
 };

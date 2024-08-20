@@ -10,9 +10,6 @@
 
 //! Exact solution to the test problem
 //! u_t(x, y, t) = u_xx(x, t) + u_yy(y, t), x in [0, 1], y in [0, 1], t in [0, T]
-//! u(0, t) = u(1, t) = 0
-//! u(x, 0) = sin(pi * x)
-//! u(0, y) = sin(pi * y)
 //!
 //! \param x value of x
 //! \param x value of y
@@ -62,8 +59,8 @@ auto validateSolution(
 //! \param dx
 //! \param dy
 
-template<typename T_Buffer, typename T_Extent>
-auto initalizeBuffer(T_Buffer& buffer, T_Extent const& extent, double const dx, double const dy) -> void
+template<typename TBuffer, typename TExtent>
+auto initalizeBuffer(TBuffer& buffer, TExtent const& extent, double const dx, double const dy) -> void
 {
     // Apply initial conditions for the test problem
     for(uint32_t j = 0; j < extent[0]; ++j)

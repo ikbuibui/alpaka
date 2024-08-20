@@ -23,7 +23,7 @@ project(${_TARGET_NAME} LANGUAGES CXX)
 ################################################################################
 
 # find PNGwriter installation
-find_package(PNGwriter 0.7.0 REQUIRED CONFIG)
+find_package(PNGwriter 0.7.0 CONFIG)
 
 
 #-------------------------------------------------------------------------------
