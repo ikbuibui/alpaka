@@ -17,8 +17,8 @@
 
 ALPAKA_FN_HOST_ACC auto exactSolution(double const x, double const y, double const t) -> double
 {
-    constexpr double pi = 3.141592653589793238462643383279502884;
-    return std::exp(-pi * pi * t) * std::sin(pi * x) + std::exp(-pi * pi * t) * std::sin(pi * y);
+    constexpr double pi = alpaka::math::constants::pi;
+    return std::exp(-pi * pi * t) * (std::sin(pi * x) + std::sin(pi * y));
 }
 
 //! Valdidate calculated solution in the buffer to the analytical solution at t=tMax
@@ -59,15 +59,16 @@ auto validateSolution(
 //! \param dx
 //! \param dy
 
-template<typename TBuffer, typename TExtent>
-auto initalizeBuffer(TBuffer& buffer, TExtent const& extent, double const dx, double const dy) -> void
+template<typename TBuffer>
+auto initalizeBuffer(TBuffer& buffer, double const dx, double const dy) -> void
 {
+    auto extents = alpaka::getExtents(buffer);
     // Apply initial conditions for the test problem
-    for(uint32_t j = 0; j < extent[0]; ++j)
+    for(uint32_t j = 0; j < extents[0]; ++j)
     {
-        for(uint32_t i = 0; i < extent[1]; ++i)
+        for(uint32_t i = 0; i < extents[1]; ++i)
         {
-            buffer.data()[j * extent[1] + i] = exactSolution(i * dx, j * dy, 0.0);
+            buffer.data()[j * extents[1] + i] = exactSolution(i * dx, j * dy, 0.0);
         }
     }
 }

@@ -79,12 +79,11 @@ auto example(TAccTag const&) -> int
     auto uBufHost = alpaka::allocBuf<double, Idx>(devHost, extent);
 
     // Accelerator buffer
-    using BufAcc = alpaka::Buf<Acc, double, Dim, Idx>;
-    BufAcc uNextBufAcc{alpaka::allocBuf<double, Idx>(devAcc, extent)};
-    BufAcc uCurrBufAcc{alpaka::allocBuf<double, Idx>(devAcc, extent)};
+    auto uCurrBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
+    auto uNextBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
 
     // Set buffer to initial conditions
-    initalizeBuffer(uBufHost, extent, dx, dy);
+    initalizeBuffer(uBufHost, dx, dy);
 
     // Select queue
     using QueueProperty = alpaka::NonBlocking;
@@ -167,9 +166,9 @@ auto example(TAccTag const&) -> int
     alpaka::wait(queue1);
 
     // Validate
-    auto const [resultCorrect, maxError] = validateSolution(uBufHost, extent, dx, dy, tMax);
+    auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, extent, dx, dy, tMax);
 
-    if(resultCorrect)
+    if(resultIsCorrect)
     {
         std::cout << "Execution results correct!" << std::endl;
         return EXIT_SUCCESS;

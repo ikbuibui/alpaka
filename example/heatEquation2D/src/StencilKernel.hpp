@@ -39,7 +39,7 @@ struct StencilKernel
         double const dy,
         double const dt) const -> void
     {
-        auto& sdata(alpaka::declareSharedVar<double[T_SharedMemSize1D], __COUNTER__>(acc));
+        auto& sdata = alpaka::declareSharedVar<double[T_SharedMemSize1D], __COUNTER__>(acc);
 
         // Get extents(dimensions)
         auto const gridBlockExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc);
