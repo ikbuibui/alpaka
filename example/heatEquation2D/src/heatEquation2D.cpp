@@ -66,7 +66,7 @@ auto example(TAccTag const&) -> int
     constexpr double dt = tMax / static_cast<double>(numTimeSteps);
 
     // Check the stability condition
-    constexpr double r = dt / std ::min(dx * dx, dy * dy);
+    constexpr double r = dt / std::min(dx * dx, dy * dy);
     if constexpr(r > 0.5)
     {
         std::cerr << "Stability condition check failed: dt/min(dx^2,dy^2) = " << r
@@ -99,9 +99,9 @@ auto example(TAccTag const&) -> int
     constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
     // Appropriate chunk size to split your problem for your Acc
     constexpr alpaka::Vec<Dim, Idx> chunkSize{16u, 16u};
-    constexpr alpaka::Vec<Dim, Idx> chunkSizeWithHalo{chunkSize[0] + haloSize[0], chunkSize[1] + haloSize[1]};
+    constexpr auto chunkSizeWithHalo = chunkSize + haloSize;
 
-    auto const maxThreadsPerBlock = alpaka::getAccDevProps<Acc>(devAcc).m_blockThreadExtentMax;
+    auto const maxThreadsPerBlock = alpaka::getAccDevProps<Acc>(devAcc).m_blockThreadExtentMax; //@TODO
     auto const threadsPerBlock = maxThreadsPerBlock.prod() < chunkSize.prod() ? maxThreadsPerBlock : chunkSize;
 
     constexpr alpaka::Vec<Dim, Idx> numChunks{
