@@ -54,11 +54,11 @@ auto example(TAccTag const&) -> int
 
     // simulation defines
     // Parameters
-    constexpr alpaka::Vec<Dim, Idx> numNodes{512, 1024}; // {Y, X}
+    constexpr alpaka::Vec<Dim, Idx> numNodes{64, 64}; // {Y, X}
     constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
     constexpr alpaka::Vec<Dim, Idx> extent = numNodes + haloSize;
 
-    constexpr uint32_t numTimeSteps = 10000;
+    constexpr uint32_t numTimeSteps = 100;
     constexpr double tMax = 0.001;
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
