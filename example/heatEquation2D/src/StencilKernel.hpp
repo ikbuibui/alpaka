@@ -56,7 +56,7 @@ struct StencilKernel
 
         for(auto i = threadIdx1D; i < T_SharedMemSize1D; i += numThreadsPerBlock)
         {
-            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize + halo);
+            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec<alpaka::DimInt<1u>, TIdx>(i), chunkSize + halo);
             idx2d = idx2d + blockStartIdx;
             auto elem = getElementPtr(uCurrBuf, idx2d, pitch);
             sdata[i] = *elem;
@@ -71,7 +71,7 @@ struct StencilKernel
         // go over only core cells
         for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
         {
-            auto idx2D = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
+            auto idx2D = alpaka::mapIdx<2>(alpaka::Vec<alpaka::DimInt<1u>, TIdx>(i), chunkSize);
             idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1}; // offset for halo above and to the left
             auto localIdx1D = alpaka::mapIdx<1>(idx2D, chunkSize + halo)[0u];
 
