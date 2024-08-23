@@ -152,7 +152,7 @@ auto example(TAccTag const&) -> int
         {
             alpaka::memcpy(queue2, uBufHost, uCurrBufAcc);
             alpaka::wait(queue2);
-            writeImage(step - 1, uBufHost, extent);
+            writeImage(step - 1, uBufHost);
         }
 #endif
 
