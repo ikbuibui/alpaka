@@ -10,8 +10,6 @@
 
 //! alpaka version of explicit finite-difference 2D heat equation solver
 //!
-//! \tparam T_SharedMemSize1D size of the shared memory box
-//!
 //! Solving equation u_t(x, t) = u_xx(x, t) + u_yy(y, t) using a simple explicit scheme with
 //! forward difference in t and second-order central difference in x and y
 //!
@@ -27,7 +25,6 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
-template<size_t T_SharedMemSize1D>
 struct StencilKernel
 {
     template<typename TAcc, typename TDim, typename TIdx>
@@ -42,8 +39,6 @@ struct StencilKernel
         double const dy,
         double const dt) const -> void
     {
-        auto& sdata = alpaka::declareSharedVar<double[T_SharedMemSize1D], __COUNTER__>(acc);
-
         // Get extents(dimensions)
         auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
         auto const numThreadsPerBlock = blockThreadExtent.prod();
@@ -56,16 +51,6 @@ struct StencilKernel
 
         constexpr alpaka::Vec<TDim, TIdx> halo{2, 2};
 
-        for(auto i = threadIdx1D; i < T_SharedMemSize1D; i += numThreadsPerBlock)
-        {
-            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec<alpaka::DimInt<1u>, TIdx>(i), chunkSize + halo);
-            idx2d = idx2d + blockStartIdx;
-            auto elem = getElementPtr(uCurrBuf, idx2d, pitchCurr);
-            sdata[i] = *elem;
-        }
-
-        alpaka::syncBlockThreads(acc);
-
         // Each kernel executes one element
         double const rX = dt / (dx * dx);
         double const rY = dt / (dy * dy);
@@ -75,15 +60,17 @@ struct StencilKernel
         {
             auto idx2D = alpaka::mapIdx<2>(alpaka::Vec<alpaka::DimInt<1u>, TIdx>(i), chunkSize);
             idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1}; // offset for halo above and to the left
-            auto localIdx1D = alpaka::mapIdx<1>(idx2D, chunkSize + halo)[0u];
-
-
             auto bufIdx = idx2D + blockStartIdx;
             auto elem = getElementPtr(uNextBuf, bufIdx, pitchNext);
 
-            *elem = sdata[localIdx1D] * (1.0 - 2.0 * rX - 2.0 * rY) + sdata[localIdx1D - 1] * rX
-                    + sdata[localIdx1D + 1] * rX + sdata[localIdx1D - chunkSize[1] - halo[1]] * rY
-                    + sdata[localIdx1D + chunkSize[1] + halo[1]] * rY;
+            auto const right = bufIdx + alpaka::Vec<TDim, TIdx>{0, 1};
+            auto const left = bufIdx + alpaka::Vec<TDim, TIdx>{0, -1};
+            auto const up = bufIdx + alpaka::Vec<TDim, TIdx>{-1, 0};
+            auto const down = bufIdx + alpaka::Vec<TDim, TIdx>{1, 0};
+
+            *elem = *getElementPtr(uCurrBuf, bufIdx, pitchCurr) * (1.0 - 2.0 * rX - 2.0 * rY)
+                    + *getElementPtr(uCurrBuf, right, pitchCurr) * rX + *getElementPtr(uCurrBuf, left, pitchCurr) * rX
+                    + *getElementPtr(uCurrBuf, up, pitchCurr) * rY + *getElementPtr(uCurrBuf, down, pitchCurr) * rY;
         }
     }
 };

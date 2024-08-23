@@ -104,7 +104,6 @@ auto example(TAccTag const&) -> int
     constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
     // Appropriate chunk size to split your problem for your Acc
     constexpr alpaka::Vec<Dim, Idx> chunkSize{16u, 16u};
-    constexpr auto chunkSizeWithHalo = chunkSize + haloSize;
     constexpr alpaka::Vec<Dim, Idx> numChunks{
         alpaka::core::divCeil(numNodes[0], chunkSize[0]),
         alpaka::core::divCeil(numNodes[1], chunkSize[1]),
@@ -114,7 +113,7 @@ auto example(TAccTag const&) -> int
         numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
         && "Domain must be divisible by chunk size");
 
-    StencilKernel<chunkSizeWithHalo.prod()> stencilKernel;
+    StencilKernel stencilKernel;
     BoundaryKernel boundaryKernel;
 
     // Get max threads that can be run in a block for this kernel
