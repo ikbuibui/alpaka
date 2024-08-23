@@ -25,6 +25,11 @@ project(${_TARGET_NAME} LANGUAGES CXX)
 # find PNGwriter installation
 find_package(PNGwriter 0.7.0 CONFIG)
 
+if(PNGwriter_FOUND)
+  set(PNGWRITER_ENABLED True)
+else()
+  set(PNGWRITER_ENABLED False)
+endif()
 
 #-------------------------------------------------------------------------------
 # Find alpaka.
@@ -54,6 +59,7 @@ if(PNGwriter_FOUND)
     target_link_libraries(
         ${_TARGET_NAME}
         PRIVATE PNGwriter::PNGwriter)
+    target_compile_definitions(${_TARGET_NAME} PRIVATE PNGWRITER_ENABLED)
 endif()
 
 set_target_properties(${_TARGET_NAME} PROPERTIES FOLDER example)
