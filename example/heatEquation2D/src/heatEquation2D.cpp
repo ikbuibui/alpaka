@@ -50,6 +50,7 @@ auto example(TAccTag const&) -> int
     auto const platformHost = alpaka::PlatformCpu{};
     auto const devHost = alpaka::getDevByIdx(platformHost, 0);
     auto const platformAcc = alpaka::Platform<Acc>{};
+    // get suitable device for this Acc
     auto const devAcc = alpaka::getDevByIdx(platformAcc, 0);
 
     // simulation defines
@@ -88,12 +89,11 @@ auto example(TAccTag const&) -> int
     // Select queue
     using QueueProperty = alpaka::NonBlocking;
     using QueueAcc = alpaka::Queue<Acc, QueueProperty>;
-    QueueAcc queue1{devAcc};
-    QueueAcc queue2{devAcc};
+    QueueAcc dumpQueue{devAcc};
+    QueueAcc computeQueue{devAcc};
 
     // Copy host -> device
-    alpaka::memcpy(queue1, uCurrBufAcc, uBufHost);
-    alpaka::wait(queue1);
+    alpaka::memcpy(computeQueue, uCurrBufAcc, uBufHost);
 
     // Define a workdiv for the given problem
     constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
@@ -123,7 +123,7 @@ auto example(TAccTag const&) -> int
     {
         // Compute next values
         alpaka::exec<Acc>(
-            queue1,
+            computeQueue,
             workDiv_manual,
             stencilKernel,
             uCurrBufAcc.data(),
@@ -136,7 +136,7 @@ auto example(TAccTag const&) -> int
 
         // apply boundaries
         alpaka::exec<Acc>(
-            queue1,
+            computeQueue,
             workDiv_manual,
             boundaryKernel,
             uNextBufAcc.data(),
@@ -148,22 +148,22 @@ auto example(TAccTag const&) -> int
             dt);
 
 #ifdef PNGWRITER_ENABLED
-        if(step % 100 == 0) // even steps will have currBufHost and PCurr pointing to same buffer
+        if((step - 1) % 100 == 0) // even steps will have currBufHost and PCurr pointing to same buffer
         {
-            alpaka::memcpy(queue2, uBufHost, uCurrBufAcc);
-            alpaka::wait(queue2);
+            alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
+            alpaka::wait(dumpQueue);
             writeImage(step - 1, uBufHost);
         }
 #endif
 
-        // So we just swap next to curr (shallow copy)
-        alpaka::wait(queue1);
+        // So we just swap next and curr (shallow copy)
+        alpaka::wait(computeQueue);
         std::swap(uNextBufAcc, uCurrBufAcc);
     }
 
     // Copy device -> host
-    alpaka::memcpy(queue1, uBufHost, uCurrBufAcc);
-    alpaka::wait(queue1);
+    alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
+    alpaka::wait(dumpQueue);
 
     // Validate
     auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, extent, dx, dy, tMax);
