@@ -19,8 +19,10 @@
 //!                 u(x, y, t) | t = t_current
 //! \param uNextBuf resulting grid values of u for each x, y pair and the next value of t:
 //!              u(x, y, t) | t = t_current + dt
-//! \param chunkSize
-//! \param pitch
+//! \param chunkSize The size of the chunk or tile that the user divides the problem into. This defines the size of the
+//!                  workload handled by each thread block.
+//! \param pitch The pitch (or stride) in memory corresponding to the TDim grid in the accelerator's memory.
+//!              This is used to calculate memory offsets when accessing elements in the buffers.
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
@@ -42,7 +44,6 @@ struct StencilKernel
         auto& sdata = alpaka::declareSharedVar<double[T_SharedMemSize1D], __COUNTER__>(acc);
 
         // Get extents(dimensions)
-        auto const gridBlockExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc);
         auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
         auto const numThreadsPerBlock = blockThreadExtent.prod();
 
