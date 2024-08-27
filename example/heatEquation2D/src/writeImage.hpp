@@ -12,6 +12,10 @@
 #include <iomanip>
 #include <sstream>
 
+//! Writes the buffer to a png file
+//!
+//! \param currentStep the current step of the simulation
+//! \param buffer the buffer to write to the file
 template<typename T_Buffer>
 auto writeImage(uint32_t const currentStep, T_Buffer const& buffer) -> void
 {

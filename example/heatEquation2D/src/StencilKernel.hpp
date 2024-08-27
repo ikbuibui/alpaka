@@ -26,7 +26,6 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
-
 template<size_t T_SharedMemSize1D>
 struct StencilKernel
 {

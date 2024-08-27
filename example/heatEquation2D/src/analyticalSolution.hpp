@@ -14,7 +14,6 @@
 //! \param x value of x
 //! \param x value of y
 //! \param t value of t
-
 ALPAKA_FN_HOST_ACC auto exactSolution(double const x, double const y, double const t) -> double
 {
     constexpr double pi = alpaka::math::constants::pi;
@@ -28,7 +27,6 @@ ALPAKA_FN_HOST_ACC auto exactSolution(double const x, double const y, double con
 //! \param dx
 //! \param dy
 //! \param tMax time at simulation end
-
 template<typename T_Buffer, typename T_Extent>
 auto validateSolution(
     T_Buffer const& buffer,
@@ -58,7 +56,6 @@ auto validateSolution(
 //! \param extent extents of the buffer
 //! \param dx
 //! \param dy
-
 template<typename TBuffer>
 auto initalizeBuffer(TBuffer& buffer, double const dx, double const dy) -> void
 {

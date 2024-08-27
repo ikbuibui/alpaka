@@ -21,7 +21,6 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
-
 struct BoundaryKernel
 {
     template<typename TAcc, typename TChunk>
