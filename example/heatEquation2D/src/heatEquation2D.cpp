@@ -94,6 +94,7 @@ auto example(TAccTag const&) -> int
 
     // Copy host -> device
     alpaka::memcpy(computeQueue, uCurrBufAcc, uBufHost);
+    alpaka::wait(computeQueue);
 
     // Define a workdiv for the given problem
     constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
