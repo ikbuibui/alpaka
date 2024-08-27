@@ -59,7 +59,8 @@ struct StencilKernel
         for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
         {
             auto idx2D = alpaka::mapIdx<2>(alpaka::Vec<alpaka::DimInt<1u>, TIdx>(i), chunkSize);
-            idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1}; // offset for halo above and to the left
+            // offset for halo above and to the left
+            idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1};
             auto bufIdx = idx2D + blockStartIdx;
             auto elem = getElementPtr(uNextBuf, bufIdx, pitchNext);
 
