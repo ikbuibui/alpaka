@@ -6,6 +6,8 @@
 #include "BoundaryKernel.hpp"
 #include "StencilKernel.hpp"
 #include "analyticalSolution.hpp"
+#include "helpers.hpp"
+#include "simulationDefines.hpp"
 
 #ifdef PNGWRITER_ENABLED
 #    include "writeImage.hpp"
@@ -54,25 +56,9 @@ auto example(TAccTag const&) -> int
     // get suitable device for this Acc
     auto const devAcc = alpaka::getDevByIdx(platformAcc, 0);
 
-    // simulation defines
-    // {Y, X}
-    constexpr alpaka::Vec<Dim, Idx> numNodes{64, 64};
-    constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
-    constexpr alpaka::Vec<Dim, Idx> extent = numNodes + haloSize;
-
-    constexpr uint32_t numTimeSteps = 100;
-    constexpr double tMax = 0.001;
-    // x, y in [0, 1], t in [0, tMax]
-    constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
-    constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
-    constexpr double dt = tMax / static_cast<double>(numTimeSteps);
-
-    // Check the stability condition
-    constexpr double r = dt / std::min(dx * dx, dy * dy);
-    if constexpr(r > 0.5)
+    // check validity of simulation setup
+    if(!isStable(dx, dy, dt) || !isValidChunking(numNodes, chunkSize))
     {
-        std::cerr << "Stability condition check failed: dt/min(dx^2,dy^2) = " << r
-                  << ", it is required to be <= 0.5\n";
         return EXIT_FAILURE;
     }
 
@@ -84,48 +70,26 @@ auto example(TAccTag const&) -> int
     auto uCurrBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
     auto uNextBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
 
-    auto const pitchCurrAcc{alpaka::getPitchesInBytes(uCurrBufAcc)};
-    auto const pitchNextAcc{alpaka::getPitchesInBytes(uNextBufAcc)};
-
     // Set buffer to initial conditions
     initalizeBuffer(uBufHost, dx, dy);
 
     // Select queue
-    using QueueProperty = alpaka::NonBlocking;
-    using QueueAcc = alpaka::Queue<Acc, QueueProperty>;
-    QueueAcc dumpQueue{devAcc};
-    QueueAcc computeQueue{devAcc};
+    alpaka::Queue<Acc, alpaka::NonBlocking> queue{devAcc};
 
     // Copy host -> device
-    alpaka::memcpy(computeQueue, uCurrBufAcc, uBufHost);
-    alpaka::wait(computeQueue);
+    alpaka::memcpy(queue, uCurrBufAcc, uBufHost);
+    alpaka::wait(queue);
 
-    // Define a workdiv for the given problem
-    constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
-    // Appropriate chunk size to split your problem for your Acc
-    constexpr alpaka::Vec<Dim, Idx> chunkSize{16u, 16u};
-    constexpr auto chunkSizeWithHalo = chunkSize + haloSize;
-    constexpr alpaka::Vec<Dim, Idx> numChunks{
-        alpaka::core::divCeil(numNodes[0], chunkSize[0]),
-        alpaka::core::divCeil(numNodes[1], chunkSize[1]),
-    };
-
-    assert(
-        numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
-        && "Domain must be divisible by chunk size");
-
-    StencilKernel<chunkSizeWithHalo.prod()> stencilKernel;
+    StencilKernel stencilKernel;
     BoundaryKernel boundaryKernel;
 
     // Get max threads that can be run in a block for this kernel
     auto const kernelFunctionAttributes = alpaka::getFunctionAttributes<Acc>(
         devAcc,
         stencilKernel,
-        uCurrBufAcc.data(),
-        uNextBufAcc.data(),
+        alpaka::experimental::getMdSpan(uCurrBufAcc),
+        alpaka::experimental::getMdSpan(uNextBufAcc),
         chunkSize,
-        pitchCurrAcc,
-        pitchNextAcc,
         dx,
         dy,
         dt);
@@ -141,26 +105,23 @@ auto example(TAccTag const&) -> int
     {
         // Compute next values
         alpaka::exec<Acc>(
-            computeQueue,
+            queue,
             workDiv_manual,
             stencilKernel,
-            uCurrBufAcc.data(),
-            uNextBufAcc.data(),
+            alpaka::experimental::getMdSpan(uCurrBufAcc),
+            alpaka::experimental::getMdSpan(uNextBufAcc),
             chunkSize,
-            pitchCurrAcc,
-            pitchNextAcc,
             dx,
             dy,
             dt);
 
         // apply boundaries
         alpaka::exec<Acc>(
-            computeQueue,
+            queue,
             workDiv_manual,
             boundaryKernel,
-            uNextBufAcc.data(),
+            alpaka::experimental::getMdSpan(uNextBufAcc),
             chunkSize,
-            pitchNextAcc,
             step,
             dx,
             dy,
@@ -169,20 +130,20 @@ auto example(TAccTag const&) -> int
 #ifdef PNGWRITER_ENABLED
         if((step - 1) % 100 == 0)
         {
-            alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
-            alpaka::wait(dumpQueue);
+            alpaka::memcpy(queue, uBufHost, uCurrBufAcc);
+            alpaka::wait(queue);
             writeImage(step - 1, uBufHost);
         }
 #endif
 
         // So we just swap next and curr (shallow copy)
-        alpaka::wait(computeQueue);
+        alpaka::wait(queue);
         std::swap(uNextBufAcc, uCurrBufAcc);
     }
 
     // Copy device -> host
-    alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
-    alpaka::wait(dumpQueue);
+    alpaka::memcpy(queue, uBufHost, uCurrBufAcc);
+    alpaka::wait(queue);
 
     // Validate
     auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, extent, dx, dy, tMax);

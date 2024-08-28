@@ -5,7 +5,6 @@
 #pragma once
 
 #include "analyticalSolution.hpp"
-#include "helpers.hpp"
 
 #include <alpaka/alpaka.hpp>
 
@@ -23,12 +22,11 @@
 //! \param dt step in t
 struct BoundaryKernel
 {
-    template<typename TAcc, typename TChunk>
+    template<typename TAcc, typename TChunk, typename TMdSpan>
     ALPAKA_FN_ACC auto operator()(
         TAcc const& acc,
-        double* const uBuf,
+        TMdSpan uBuf,
         TChunk const chunkSize,
-        TChunk const pitch,
         uint32_t step,
         double const dx,
         double const dy,
@@ -56,8 +54,7 @@ struct BoundaryKernel
             for(auto i = threadIdx1D; i < chunkSize[1]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(0, i);
-                auto elem = getElementPtr(uBuf, idx2D, pitch);
-                *elem = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+                uBuf(idx2D[0], idx2D[1]) = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
             }
         }
         if(gridBlockIdx[0] == gridBlockExtent[0] - 1)
@@ -67,8 +64,7 @@ struct BoundaryKernel
             for(auto i = threadIdx1D; i < chunkSize[1]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(0, i);
-                auto elem = getElementPtr(uBuf, idx2D, pitch);
-                *elem = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+                uBuf(idx2D[0], idx2D[1]) = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
             }
         }
         if(gridBlockIdx[1] == 0)
@@ -78,8 +74,7 @@ struct BoundaryKernel
             for(auto i = threadIdx1D; i < chunkSize[0]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(i, 0);
-                auto elem = getElementPtr(uBuf, idx2D, pitch);
-                *elem = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+                uBuf(idx2D[0], idx2D[1]) = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
             }
         }
         if(gridBlockIdx[1] == gridBlockExtent[1] - 1)
@@ -89,8 +84,7 @@ struct BoundaryKernel
             for(auto i = threadIdx1D; i < chunkSize[0]; i += numThreadsPerBlock)
             {
                 auto idx2D = globalIdx + alpaka::Vec<Dim, Idx>(i, 0);
-                auto elem = getElementPtr(uBuf, idx2D, pitch);
-                *elem = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+                uBuf(idx2D[0], idx2D[1]) = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
             }
         }
     }
