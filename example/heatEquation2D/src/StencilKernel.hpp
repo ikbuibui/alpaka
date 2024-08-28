@@ -21,8 +21,9 @@
 //!              u(x, y, t) | t = t_current + dt
 //! \param chunkSize The size of the chunk or tile that the user divides the problem into. This defines the size of the
 //!                  workload handled by each thread block.
-//! \param pitch The pitch (or stride) in memory corresponding to the TDim grid in the accelerator's memory.
-//!              This is used to calculate memory offsets when accessing elements in the buffers.
+//! \param pitchCurr The pitch (or stride) in memory corresponding to the TDim grid in the accelerator's memory.
+//!              This is used to calculate memory offsets when accessing elements in the current buffer.
+//! \param pitchNext The pitch used to calculate memory offsets when accessing elements in the next buffer.
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
@@ -35,7 +36,8 @@ struct StencilKernel
         double const* const uCurrBuf,
         double* const uNextBuf,
         alpaka::Vec<TDim, TIdx> const chunkSize,
-        alpaka::Vec<TDim, TIdx> const pitch,
+        alpaka::Vec<TDim, TIdx> const pitchCurr,
+        alpaka::Vec<TDim, TIdx> const pitchNext,
         double const dx,
         double const dy,
         double const dt) const -> void
@@ -58,7 +60,7 @@ struct StencilKernel
         {
             auto idx2d = alpaka::mapIdx<2>(alpaka::Vec<alpaka::DimInt<1u>, TIdx>(i), chunkSize + halo);
             idx2d = idx2d + blockStartIdx;
-            auto elem = getElementPtr(uCurrBuf, idx2d, pitch);
+            auto elem = getElementPtr(uCurrBuf, idx2d, pitchCurr);
             sdata[i] = *elem;
         }
 
@@ -77,7 +79,7 @@ struct StencilKernel
 
 
             auto bufIdx = idx2D + blockStartIdx;
-            auto elem = getElementPtr(uNextBuf, bufIdx, pitch);
+            auto elem = getElementPtr(uNextBuf, bufIdx, pitchNext);
 
             *elem = sdata[localIdx1D] * (1.0 - 2.0 * rX - 2.0 * rY) + sdata[localIdx1D - 1] * rX
                     + sdata[localIdx1D + 1] * rX + sdata[localIdx1D - chunkSize[1] - halo[1]] * rY

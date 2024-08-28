@@ -114,6 +114,7 @@ auto example(TAccTag const&) -> int
         "Domain must be divisible by chunk size");
 
     auto const pitchCurrAcc{alpaka::getPitchesInBytes(uCurrBufAcc)};
+    auto const pitchNextAcc{alpaka::getPitchesInBytes(uNextBufAcc)};
 
     alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
 
@@ -131,6 +132,7 @@ auto example(TAccTag const&) -> int
             uNextBufAcc.data(),
             chunkSize,
             pitchCurrAcc,
+            pitchNextAcc,
             dx,
             dy,
             dt);
@@ -142,7 +144,7 @@ auto example(TAccTag const&) -> int
             boundaryKernel,
             uNextBufAcc.data(),
             chunkSize,
-            pitchCurrAcc,
+            pitchNextAcc,
             step,
             dx,
             dy,
