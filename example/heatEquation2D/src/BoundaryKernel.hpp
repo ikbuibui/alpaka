@@ -57,6 +57,7 @@ struct BoundaryKernel
                 uBuf(idx2D[0], idx2D[1]) = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
             }
         }
+        // bottom row
         if(gridBlockIdx[0] == gridBlockExtent[0] - 1)
         {
             auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{chunkSize[0] + 1, 1};
@@ -67,6 +68,7 @@ struct BoundaryKernel
                 uBuf(idx2D[0], idx2D[1]) = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
             }
         }
+        // left row
         if(gridBlockIdx[1] == 0)
         {
             auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>(1, 0);
@@ -77,6 +79,7 @@ struct BoundaryKernel
                 uBuf(idx2D[0], idx2D[1]) = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
             }
         }
+        // right row
         if(gridBlockIdx[1] == gridBlockExtent[1] - 1)
         {
             auto const globalIdx = blockStartIdx + alpaka::Vec<Dim, Idx>{1, chunkSize[1] + 1};
