@@ -54,8 +54,8 @@ auto example(TAccTag const&) -> int
     auto const devAcc = alpaka::getDevByIdx(platformAcc, 0);
 
     // simulation defines
-    // Parameters
-    constexpr alpaka::Vec<Dim, Idx> numNodes{64, 64}; // {Y, X}
+    // {Y, X}
+    constexpr alpaka::Vec<Dim, Idx> numNodes{64, 64};
     constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
     constexpr alpaka::Vec<Dim, Idx> extent = numNodes + haloSize;
 
@@ -83,6 +83,9 @@ auto example(TAccTag const&) -> int
     auto uCurrBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
     auto uNextBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
 
+    auto const pitchCurrAcc{alpaka::getPitchesInBytes(uCurrBufAcc)};
+    auto const pitchNextAcc{alpaka::getPitchesInBytes(uNextBufAcc)};
+
     // Set buffer to initial conditions
     initalizeBuffer(uBufHost, dx, dy);
 
@@ -101,26 +104,38 @@ auto example(TAccTag const&) -> int
     // Appropriate chunk size to split your problem for your Acc
     constexpr alpaka::Vec<Dim, Idx> chunkSize{16u, 16u};
     constexpr auto chunkSizeWithHalo = chunkSize + haloSize;
-
-    auto const maxThreadsPerBlock = alpaka::getAccDevProps<Acc>(devAcc).m_blockThreadExtentMax; //@TODO
-    auto const threadsPerBlock = maxThreadsPerBlock.prod() < chunkSize.prod() ? maxThreadsPerBlock : chunkSize;
-
     constexpr alpaka::Vec<Dim, Idx> numChunks{
-        (extent[0] - haloSize[0] - 1) / chunkSize[0] + 1,
-        (extent[1] - haloSize[1] - 1) / chunkSize[1] + 1};
+        alpaka::core::divCeil(numNodes[0], chunkSize[0]),
+        alpaka::core::divCeil(numNodes[1], chunkSize[1]),
+    };
 
     static_assert(
-        (extent[0] - haloSize[0]) % chunkSize[0] == 0 && (extent[1] - haloSize[1]) % chunkSize[1] == 0,
+        numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0,
         "Domain must be divisible by chunk size");
-
-    auto const pitchCurrAcc{alpaka::getPitchesInBytes(uCurrBufAcc)};
-    auto const pitchNextAcc{alpaka::getPitchesInBytes(uNextBufAcc)};
-
-    alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
 
     StencilKernel<chunkSizeWithHalo.prod()> stencilKernel;
     BoundaryKernel boundaryKernel;
 
+    // Get max threads that can be run in a block for this kernel
+    auto const kernelFunctionAttributes = alpaka::getFunctionAttributes<Acc>(
+        devAcc,
+        stencilKernel,
+        uCurrBufAcc.data(),
+        uNextBufAcc.data(),
+        chunkSize,
+        pitchCurrAcc,
+        pitchNextAcc,
+        dx,
+        dy,
+        dt);
+    auto const maxThreadsPerBlock = kernelFunctionAttributes.maxThreadsPerBlock;
+
+    auto const threadsPerBlock
+        = maxThreadsPerBlock < chunkSize.prod() ? alpaka::Vec<Dim, Idx>{maxThreadsPerBlock, 1} : chunkSize;
+
+    alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
+
+    // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {
         // Compute next values
@@ -151,7 +166,7 @@ auto example(TAccTag const&) -> int
             dt);
 
 #ifdef PNGWRITER_ENABLED
-        if((step - 1) % 100 == 0) // even steps will have currBufHost and PCurr pointing to same buffer
+        if((step - 1) % 100 == 0)
         {
             alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
             alpaka::wait(dumpQueue);
