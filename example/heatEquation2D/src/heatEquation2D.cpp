@@ -15,6 +15,7 @@
 #include <alpaka/example/ExecuteForEachAccTag.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -109,9 +110,9 @@ auto example(TAccTag const&) -> int
         alpaka::core::divCeil(numNodes[1], chunkSize[1]),
     };
 
-    static_assert(
-        numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0,
-        "Domain must be divisible by chunk size");
+    assert(
+        numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
+        && "Domain must be divisible by chunk size");
 
     StencilKernel<chunkSizeWithHalo.prod()> stencilKernel;
     BoundaryKernel boundaryKernel;
