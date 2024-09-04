@@ -47,6 +47,10 @@ if(NOT TARGET alpaka::alpaka)
 endif()
 
 #-------------------------------------------------------------------------------
+# Use Timing
+
+option(ENABLE_TIMING "Enable timing of the simulation" OFF)
+#-------------------------------------------------------------------------------
 # Add executable.
 
 alpaka_add_executable(
@@ -60,6 +64,9 @@ if(PNGwriter_FOUND)
         ${_TARGET_NAME}
         PRIVATE PNGwriter::PNGwriter)
     target_compile_definitions(${_TARGET_NAME} PRIVATE PNGWRITER_ENABLED)
+endif()
+if(ENABLE_TIMING)
+    target_compile_definitions(${_TARGET_NAME}  PRIVATE ENABLE_TIMING)
 endif()
 
 set_target_properties(${_TARGET_NAME} PROPERTIES FOLDER example)
