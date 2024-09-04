@@ -16,10 +16,17 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <utility>
+
+#ifdef ENABLE_TIMING
+constexpr bool enableTiming = true;
+#else
+constexpr bool enableTiming = false;
+#endif
 
 //! Each kernel computes the next step for one point.
 //! Therefore the number of threads should be equal to numNodesX.
@@ -136,6 +143,9 @@ auto example(TAccTag const&) -> int
 
     alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
 
+    // Timing start
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {
@@ -166,21 +176,31 @@ auto example(TAccTag const&) -> int
             dy,
             dt);
 
-#ifdef PNGWRITER_ENABLED
-        if((step - 1) % 100 == 0)
+        if(!enableTiming)
         {
-            alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
-            alpaka::wait(dumpQueue);
-            writeImage(step - 1, uBufHost);
-        }
+#ifdef PNGWRITER_ENABLED
+            if((step - 1) % 100 == 0)
+            {
+                alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
+                alpaka::wait(dumpQueue);
+                writeImage(step - 1, uBufHost);
+            }
 #endif
+        }
 
-        // So we just swap next and curr (shallow copy)
+        // Swap next and curr (shallow copy)
         std::swap(uNextBufAcc, uCurrBufAcc);
+    }
+    // Timing end
+    alpaka::wait(computeQueue);
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsedTime = endTime - startTime;
+    if(enableTiming)
+    {
+        std::cout << "Simulation took " << elapsedTime.count() << " seconds." << std::endl;
     }
 
     // Copy device -> host
-    alpaka::wait(computeQueue);
     alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
     alpaka::wait(dumpQueue);
 
