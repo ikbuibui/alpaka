@@ -17,8 +17,6 @@
 //!                 u(x, y, t) | t = t_current
 //! \param uNextBuf resulting grid values of u for each x, y pair and the next value of t:
 //!              u(x, y, t) | t = t_current + dt
-//! \param chunkSize The size of the chunk or tile that the user divides the problem into. This defines the size of the
-//!                  workload handled by each thread block.
 //! \param pitchCurr The pitch (or stride) in memory corresponding to the TDim grid in the accelerator's memory.
 //!              This is used to calculate memory offsets when accessing elements in the current buffer.
 //! \param pitchNext The pitch used to calculate memory offsets when accessing elements in the next buffer.
@@ -32,43 +30,27 @@ struct StencilKernel
         TAcc const& acc,
         double const* const uCurrBuf,
         double* const uNextBuf,
-        alpaka::Vec<TDim, TIdx> const chunkSize,
         alpaka::Vec<TDim, TIdx> const pitchCurr,
         alpaka::Vec<TDim, TIdx> const pitchNext,
         double const dx,
         double const dy,
         double const dt) const -> void
     {
-        // Get extents(dimensions)
-        auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
-        auto const numThreadsPerBlock = blockThreadExtent.prod();
-
-        // Get indexes
-        auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc);
-        auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
-        auto const threadIdx1D = alpaka::mapIdx<1>(blockThreadIdx, blockThreadExtent)[0u];
-        auto const blockStartIdx = gridBlockIdx * chunkSize;
-
         // Each kernel executes one element
         double const rX = dt / (dx * dx);
         double const rY = dt / (dy * dy);
 
-        // go over only core cells
-        for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
+
+        for(auto index : alpaka::uniformElementsND(acc))
         {
-            auto idx2D = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
-            // offset for halo above and to the left
-            idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1};
+            index = index + alpaka::Vec<TDim, TIdx>{1, 1};
+            auto elem = getElementPtr(uNextBuf, index, pitchNext);
+            auto const right = index + alpaka::Vec<TDim, TIdx>{0, 1};
+            auto const left = index + alpaka::Vec<TDim, TIdx>{0, -1};
+            auto const up = index + alpaka::Vec<TDim, TIdx>{-1, 0};
+            auto const down = index + alpaka::Vec<TDim, TIdx>{1, 0};
 
-            auto bufIdx = idx2D + blockStartIdx;
-            auto elem = getElementPtr(uNextBuf, bufIdx, pitchNext);
-
-            auto const right = bufIdx + alpaka::Vec<TDim, TIdx>{0, 1};
-            auto const left = bufIdx + alpaka::Vec<TDim, TIdx>{0, -1};
-            auto const up = bufIdx + alpaka::Vec<TDim, TIdx>{-1, 0};
-            auto const down = bufIdx + alpaka::Vec<TDim, TIdx>{1, 0};
-
-            *elem = *getElementPtr(uCurrBuf, bufIdx, pitchCurr) * (1.0 - 2.0 * rX - 2.0 * rY)
+            *elem = *getElementPtr(uCurrBuf, index, pitchCurr) * (1.0 - 2.0 * rX - 2.0 * rY)
                     + *getElementPtr(uCurrBuf, right, pitchCurr) * rX + *getElementPtr(uCurrBuf, left, pitchCurr) * rX
                     + *getElementPtr(uCurrBuf, up, pitchCurr) * rY + *getElementPtr(uCurrBuf, down, pitchCurr) * rY;
         }

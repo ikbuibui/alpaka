@@ -16,7 +16,6 @@
 //!
 //! \param uBuf grid values of u for each x, y and the current value of t:
 //!                 u(x, y, t)  | t = t_current
-//! \param chunkSize
 //! \param pitch
 //! \param dx step in x
 //! \param dy step in y
@@ -27,60 +26,23 @@ struct BoundaryKernel
     ALPAKA_FN_ACC auto operator()(
         TAcc const& acc,
         double* const uBuf,
-        TChunk const chunkSize,
         TChunk const pitch,
         uint32_t step,
         double const dx,
         double const dy,
         double const dt) const -> void
     {
-        using Dim = alpaka::DimInt<2u>;
-        using Idx = uint32_t;
-
         // Get extents(dimensions)
-        auto const gridBlockExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc);
-        auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
-        auto const numThreadsPerBlock = blockThreadExtent.prod();
+        auto const gridThreadsExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Threads>(acc);
 
-        // Get indexes
-        auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc);
-        auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
-        auto const threadIdx1D = alpaka::mapIdx<1>(blockThreadIdx, blockThreadExtent)[0u];
-        auto const blockStartIdx = gridBlockIdx * chunkSize;
-
-        // Lambda function to apply boundary conditions
-        auto applyBoundary = [&](auto const& globalIdxStart, auto const length, bool isRow)
+        for(auto index : alpaka::uniformElementsND(acc))
         {
-            for(auto i = threadIdx1D; i < length; i += numThreadsPerBlock)
+            if(index.x() == 0 || index.x() == gridThreadsExtent[1] - 1 || index.y() == 0
+               || index.y() == gridThreadsExtent[0] - 1)
             {
-                auto idx2D = globalIdxStart + (isRow ? alpaka::Vec<Dim, Idx>{0, i} : alpaka::Vec<Dim, Idx>{i, 0});
-                auto elem = getElementPtr(uBuf, idx2D, pitch);
-                *elem = exactSolution(idx2D[1] * dx, idx2D[0] * dy, step * dt);
+                auto elem = getElementPtr(uBuf, index, pitch);
+                *elem = exactSolution(index.x() * dx, index.y() * dy, step * dt);
             }
-        };
-
-        // Apply boundary conditions for the top row
-        if(gridBlockIdx[0] == 0)
-        {
-            applyBoundary(blockStartIdx + alpaka::Vec<Dim, Idx>{0, 1}, chunkSize[1], true);
-        }
-
-        // Apply boundary conditions for the bottom row
-        if(gridBlockIdx[0] == gridBlockExtent[0] - 1)
-        {
-            applyBoundary(blockStartIdx + alpaka::Vec<Dim, Idx>{chunkSize[0] + 1, 1}, chunkSize[1], true);
-        }
-
-        // Apply boundary conditions for the left column
-        if(gridBlockIdx[1] == 0)
-        {
-            applyBoundary(blockStartIdx + alpaka::Vec<Dim, Idx>{1, 0}, chunkSize[0], false);
-        }
-
-        // Apply boundary conditions for the right column
-        if(gridBlockIdx[1] == gridBlockExtent[1] - 1)
-        {
-            applyBoundary(blockStartIdx + alpaka::Vec<Dim, Idx>{1, chunkSize[1] + 1}, chunkSize[0], false);
         }
     }
 };

@@ -86,65 +86,52 @@ auto example(TAccTag const&) -> int
     initalizeBuffer(uBufHost, dx, dy);
 
     // Select queue
-    using QueueProperty = alpaka::NonBlocking;
-    using QueueAcc = alpaka::Queue<Acc, QueueProperty>;
-    QueueAcc dumpQueue{devAcc};
-    QueueAcc computeQueue{devAcc};
+    alpaka::Queue<Acc, alpaka::NonBlocking> queue{devAcc};
 
     // Copy host -> device
-    alpaka::memcpy(computeQueue, uCurrBufAcc, uBufHost);
-    alpaka::wait(computeQueue);
+    alpaka::memcpy(queue, uCurrBufAcc, uBufHost);
+    alpaka::wait(queue);
 
     // Define a workdiv for the given problem
-    constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
-
-    // Appropriate chunk size to split your problem for your Acc
-    constexpr Idx xSize = 16u;
-    constexpr Idx ySize = 16u;
-    constexpr alpaka::Vec<Dim, Idx> chunkSize{ySize, xSize};
-
-    constexpr alpaka::Vec<Dim, Idx> numChunks{
-        alpaka::core::divCeil(numNodes[0], chunkSize[0]),
-        alpaka::core::divCeil(numNodes[1], chunkSize[1]),
-    };
-
-    assert(
-        numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
-        && "Domain must be divisible by chunk size");
+    alpaka::KernelCfg<Acc> const coreKernelCfg = {numNodes, alpaka::Vec<Dim, Idx>::ones()};
+    alpaka::KernelCfg<Acc> const boundaryKernelCfg = {extent, alpaka::Vec<Dim, Idx>::ones()};
 
     StencilKernel stencilKernel;
     BoundaryKernel boundaryKernel;
 
-    // Get max threads that can be run in a block for this kernel
-    auto const kernelFunctionAttributes = alpaka::getFunctionAttributes<Acc>(
+    auto const coreWorkDiv = alpaka::getValidWorkDiv(
+        coreKernelCfg,
         devAcc,
         stencilKernel,
         uCurrBufAcc.data(),
         uNextBufAcc.data(),
-        chunkSize,
         pitchCurrAcc,
         pitchNextAcc,
         dx,
         dy,
         dt);
-    auto const maxThreadsPerBlock = kernelFunctionAttributes.maxThreadsPerBlock;
 
-    auto const threadsPerBlock
-        = maxThreadsPerBlock < chunkSize.prod() ? alpaka::Vec<Dim, Idx>{maxThreadsPerBlock, 1} : chunkSize;
-
-    alpaka::WorkDivMembers<Dim, Idx> workDiv_manual{numChunks, threadsPerBlock, elemPerThread};
+    auto const boundaryWorkDiv = alpaka::getValidWorkDiv(
+        boundaryKernelCfg,
+        devAcc,
+        boundaryKernel,
+        uNextBufAcc.data(),
+        pitchNextAcc,
+        0,
+        dx,
+        dy,
+        dt);
 
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
     {
         // Compute next values
         alpaka::exec<Acc>(
-            computeQueue,
-            workDiv_manual,
+            queue,
+            coreWorkDiv,
             stencilKernel,
             uCurrBufAcc.data(),
             uNextBufAcc.data(),
-            chunkSize,
             pitchCurrAcc,
             pitchNextAcc,
             dx,
@@ -152,23 +139,13 @@ auto example(TAccTag const&) -> int
             dt);
 
         // Apply boundaries
-        alpaka::exec<Acc>(
-            computeQueue,
-            workDiv_manual,
-            boundaryKernel,
-            uNextBufAcc.data(),
-            chunkSize,
-            pitchNextAcc,
-            step,
-            dx,
-            dy,
-            dt);
+        alpaka::exec<Acc>(queue, boundaryWorkDiv, boundaryKernel, uNextBufAcc.data(), pitchNextAcc, step, dx, dy, dt);
 
 #ifdef PNGWRITER_ENABLED
         if((step - 1) % 100 == 0)
         {
-            alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
-            alpaka::wait(dumpQueue);
+            alpaka::memcpy(queue, uBufHost, uCurrBufAcc);
+            alpaka::wait(queue);
             writeImage(step - 1, uBufHost);
         }
 #endif
@@ -178,9 +155,9 @@ auto example(TAccTag const&) -> int
     }
 
     // Copy device -> host
-    alpaka::wait(computeQueue);
-    alpaka::memcpy(dumpQueue, uBufHost, uCurrBufAcc);
-    alpaka::wait(dumpQueue);
+    alpaka::wait(queue);
+    alpaka::memcpy(queue, uBufHost, uCurrBufAcc);
+    alpaka::wait(queue);
 
     // Validate
     auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, extent, dx, dy, tMax);
