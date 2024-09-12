@@ -52,7 +52,6 @@ auto example(TAccTag const&) -> int
     constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
 
     // Initialize host-buffer
-    // This buffer will hold the current values (used for the next step)
     auto uBufHost = alpaka::allocBuf<double, Idx>(devHost, extent);
 
     // // Accelerator buffer
@@ -78,7 +77,7 @@ auto example(TAccTag const&) -> int
     alpaka::wait(queue);
 
     // Validate
-    auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, extent, dx, dy, 0.0);
+    auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, dx, dy, 0.0);
 
     if(resultIsCorrect)
     {
