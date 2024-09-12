@@ -32,45 +32,28 @@ struct StencilKernel
         TAcc const& acc,
         double const* const uCurrBuf,
         double* const uNextBuf,
-        alpaka::Vec<TDim, TIdx> const chunkSize,
         alpaka::Vec<TDim, TIdx> const pitchCurr,
         alpaka::Vec<TDim, TIdx> const pitchNext,
         double const dx,
         double const dy,
         double const dt) const -> void
     {
-        // Get extents(dimensions)
-        auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
-        auto const numThreadsPerBlock = blockThreadExtent.prod();
-
         // Get indexes
-        auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc);
-        auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
-        auto const threadIdx1D = alpaka::mapIdx<1>(blockThreadIdx, blockThreadExtent)[0u];
-        auto const blockStartIdx = gridBlockIdx * chunkSize;
+        auto const gridThreadIdx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
 
         // Each kernel executes one element
         double const rX = dt / (dx * dx);
         double const rY = dt / (dy * dy);
 
-        // go over only core cells
-        for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
-        {
-            auto idx2D = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
-            // offset for halo above and to the left
-            idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1};
+        auto idx2D = gridThreadIdx + alpaka::Vec<TDim, TIdx>{1, 1};
+        auto const right = idx2D + alpaka::Vec<TDim, TIdx>{0, 1};
+        auto const left = idx2D + alpaka::Vec<TDim, TIdx>{0, -1};
+        auto const up = idx2D + alpaka::Vec<TDim, TIdx>{-1, 0};
+        auto const down = idx2D + alpaka::Vec<TDim, TIdx>{1, 0};
+        auto elem = getElementPtr(uNextBuf, idx2D, pitchNext);
 
-            auto bufIdx = idx2D + blockStartIdx;
-            auto elem = getElementPtr(uNextBuf, bufIdx, pitchNext);
-
-            auto const right = bufIdx + alpaka::Vec<TDim, TIdx>{0, 1};
-            auto const left = bufIdx + alpaka::Vec<TDim, TIdx>{0, -1};
-            auto const up = bufIdx + alpaka::Vec<TDim, TIdx>{-1, 0};
-            auto const down = bufIdx + alpaka::Vec<TDim, TIdx>{1, 0};
-
-            *elem = *getElementPtr(uCurrBuf, bufIdx, pitchCurr) * (1.0 - 2.0 * rX - 2.0 * rY)
-                    + *getElementPtr(uCurrBuf, right, pitchCurr) * rX + *getElementPtr(uCurrBuf, left, pitchCurr) * rX
-                    + *getElementPtr(uCurrBuf, up, pitchCurr) * rY + *getElementPtr(uCurrBuf, down, pitchCurr) * rY;
-        }
+        *elem = *getElementPtr(uCurrBuf, idx2D, pitchCurr) * (1.0 - 2.0 * rX - 2.0 * rY)
+                + *getElementPtr(uCurrBuf, right, pitchCurr) * rX + *getElementPtr(uCurrBuf, left, pitchCurr) * rX
+                + *getElementPtr(uCurrBuf, up, pitchCurr) * rY + *getElementPtr(uCurrBuf, down, pitchCurr) * rY;
     }
 };
