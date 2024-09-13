@@ -1,13 +1,16 @@
-/* Copyright 2020 Benjamin Worpitz, Matthias Werner, Jakob Krude, Sergei
- * Bastrakov, Bernhard Manfred Gruber, Tapish Narwal SPDX-License-Identifier:
- * ISC
+/* Copyright 2024 Benjamin Worpitz, Matthias Werner, Jakob Krude, Sergei
+ * Bastrakov, Bernhard Manfred Gruber, Tapish Narwal
+ * SPDX-License-Identifier: ISC
  */
 
 #include "BoundaryKernel.hpp"
 #include "InitializeBufferKernel.hpp"
 #include "StencilKernel.hpp"
 #include "analyticalSolution.hpp"
-#include "writeImage.hpp"
+
+#ifdef PNGWRITER_ENABLED
+#    include "writeImage.hpp"
+#endif
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExecuteForEachAccTag.hpp>
