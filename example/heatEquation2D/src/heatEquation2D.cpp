@@ -1,6 +1,6 @@
-/* Copyright 2020 Benjamin Worpitz, Matthias Werner, Jakob Krude, Sergei
- * Bastrakov, Bernhard Manfred Gruber, Tapish Narwal SPDX-License-Identifier:
- * ISC
+/* Copyright 2024 Benjamin Worpitz, Matthias Werner, Jakob Krude, Sergei
+ * Bastrakov, Bernhard Manfred Gruber, Tapish Narwal
+ * SPDX-License-Identifier: ISC
  */
 
 #include "InitializeBufferKernel.hpp"
