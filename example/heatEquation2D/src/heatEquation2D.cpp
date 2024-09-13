@@ -3,8 +3,11 @@
  * ISC
  */
 
+#include "BoundaryKernel.hpp"
 #include "InitializeBufferKernel.hpp"
+#include "StencilKernel.hpp"
 #include "analyticalSolution.hpp"
+#include "writeImage.hpp"
 
 #include <alpaka/alpaka.hpp>
 #include <alpaka/example/ExecuteForEachAccTag.hpp>
@@ -43,19 +46,39 @@ auto example(TAccTag const&) -> int
     // get suitable device for this Acc
     auto const devAcc = alpaka::getDevByIdx(platformAcc, 0);
 
+    // simulation defines
+    // {Y, X}
     constexpr alpaka::Vec<Dim, Idx> numNodes{64, 64};
     constexpr alpaka::Vec<Dim, Idx> haloSize{2, 2};
     constexpr alpaka::Vec<Dim, Idx> extent = numNodes + haloSize;
 
+    constexpr uint32_t numTimeSteps = 100;
+    constexpr double tMax = 0.001;
+
     // x, y in [0, 1], t in [0, tMax]
     constexpr double dx = 1.0 / static_cast<double>(extent[1] - 1);
     constexpr double dy = 1.0 / static_cast<double>(extent[0] - 1);
+    constexpr double dt = tMax / static_cast<double>(numTimeSteps);
+
+    // Check the stability condition
+    constexpr double r = dt / std::min(dx * dx, dy * dy);
+    if constexpr(r > 0.5)
+    {
+        std::cerr << "Stability condition check failed: dt/min(dx^2,dy^2) = " << r
+                  << ", it is required to be <= 0.5\n";
+        return EXIT_FAILURE;
+    }
 
     // Initialize host-buffer
     auto uBufHost = alpaka::allocBuf<double, Idx>(devHost, extent);
 
     // // Accelerator buffer
-    auto uBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
+    // Accelerator buffer
+    auto uCurrBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
+    auto uNextBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
+
+    auto const pitchCurrAcc{alpaka::getPitchesInBytes(uCurrBufAcc)};
+    auto const pitchNextAcc{alpaka::getPitchesInBytes(uNextBufAcc)};
 
     // Create queue
     alpaka::Queue<Acc, alpaka::NonBlocking> queue{devAcc};
@@ -66,18 +89,63 @@ auto example(TAccTag const&) -> int
     constexpr alpaka::Vec<Dim, Idx> elemPerThread{1, 1};
 
     alpaka::KernelCfg<Acc> const kernelCfg = {extent, elemPerThread};
-    auto const pitchCurrAcc{alpaka::getPitchesInBytes(uBufAcc)};
 
-    auto workDiv = alpaka::getValidWorkDiv(kernelCfg, devAcc, initBufferKernel, uBufAcc.data(), pitchCurrAcc, dx, dy);
+    auto workDivExtent
+        = alpaka::getValidWorkDiv(kernelCfg, devAcc, initBufferKernel, uCurrBufAcc.data(), pitchCurrAcc, dx, dy);
 
-    alpaka::exec<Acc>(queue, workDiv, initBufferKernel, uBufAcc.data(), pitchCurrAcc, dx, dy);
+    alpaka::exec<Acc>(queue, workDivExtent, initBufferKernel, uCurrBufAcc.data(), pitchCurrAcc, dx, dy);
+
+    alpaka::KernelCfg<Acc> const computeCfg = {numNodes, elemPerThread};
+
+    StencilKernel stencilKernel;
+
+    auto workDiv = alpaka::getValidWorkDiv(
+        computeCfg,
+        devAcc,
+        stencilKernel,
+        uCurrBufAcc.data(),
+        uNextBufAcc.data(),
+        pitchCurrAcc);
+
+    // Simulate
+    for(uint32_t step = 1; step <= numTimeSteps; ++step)
+    {
+        // Compute next values
+        alpaka::exec<Acc>(
+            queue,
+            workDiv,
+            stencilKernel,
+            uCurrBufAcc.data(),
+            uNextBufAcc.data(),
+            pitchCurrAcc,
+            pitchNextAcc,
+            dx,
+            dy,
+            dt);
+
+        // Apply boundaries
+        applyBoundaries<Acc>(devAcc, extent, elemPerThread, queue, uNextBufAcc.data(), pitchNextAcc, step, dx, dy, dt);
+
+#ifdef PNGWRITER_ENABLED
+        if((step - 1) % 100 == 0)
+        {
+            alpaka::memcpy(queue, uBufHost, uCurrBufAcc);
+            alpaka::wait(queue);
+            writeImage(step - 1, uBufHost);
+        }
+#endif
+
+        // So we just swap next and curr (shallow copy)
+        std::swap(uNextBufAcc, uCurrBufAcc);
+    }
+
 
     // Copy device -> host
-    alpaka::memcpy(queue, uBufHost, uBufAcc);
+    alpaka::memcpy(queue, uBufHost, uCurrBufAcc);
     alpaka::wait(queue);
 
     // Validate
-    auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, dx, dy, 0.0);
+    auto const [resultIsCorrect, maxError] = validateSolution(uBufHost, dx, dy, tMax);
 
     if(resultIsCorrect)
     {

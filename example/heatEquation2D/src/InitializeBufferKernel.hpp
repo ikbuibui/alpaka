@@ -32,23 +32,8 @@ struct InitializeBufferKernel
         double dx,
         double dy) const -> void
     {
-        // Get extents(dimensions)
-        auto const blockThreadExtent = alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc);
-
         // Get indexes
-        auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc);
-        auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
         auto const gridThreadIdx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
-
-        printf(
-            "Block index [y,x]: %u %u \t Thread index in block [y,x] : %u %u \t Thread index in grid [y,x] : "
-            "%u %u \n",
-            gridBlockIdx[0] * blockThreadExtent[0] + blockThreadIdx[0],
-            gridBlockIdx[1] * blockThreadExtent[1] + blockThreadIdx[1],
-            blockThreadIdx[0],
-            blockThreadIdx[1],
-            gridThreadIdx[0],
-            gridThreadIdx[1]);
 
         *getElementPtr(bufData, gridThreadIdx, pitch)
             = analyticalSolution(acc, gridThreadIdx[1] * dx, gridThreadIdx[0] * dy, 0.0);
