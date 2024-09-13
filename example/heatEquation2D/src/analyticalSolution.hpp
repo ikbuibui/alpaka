@@ -8,7 +8,20 @@
 
 #include <cmath>
 
-ALPAKA_FN_HOST auto analyticalSolution(double const x, double const y, double const t) -> double
+//! Exact solution to the test problem
+//! u_t(x, y, t) = u_xx(x, t) + u_yy(y, t), x in [0, 1], y in [0, 1], t in [0, T]
+//!
+//! \param x value of x
+//! \param x value of y
+//! \param t value of t
+template<typename TAcc>
+ALPAKA_FN_ACC auto analyticalSolution(TAcc const& acc, double const x, double const y, double const t) -> double
+{
+    constexpr double pi = alpaka::math::constants::pi;
+    return alpaka::math::exp(acc, -pi * pi * t) * (alpaka::math::sin(acc, pi * x) + alpaka::math::sin(acc, pi * y));
+}
+
+auto analyticalSolution(double const x, double const y, double const t) -> double
 {
     constexpr double pi = alpaka::math::constants::pi;
     return std::exp(-pi * pi * t) * (std::sin(pi * x) + std::sin(pi * y));
@@ -21,7 +34,7 @@ ALPAKA_FN_HOST auto analyticalSolution(double const x, double const y, double co
 //! \param dy
 //! \param t
 template<typename T_Buffer>
-ALPAKA_FN_HOST auto validateSolution(T_Buffer const& buffer, double const dx, double const dy, double const t)
+auto validateSolution(T_Buffer const& buffer, double const dx, double const dy, double const t)
     -> std::pair<bool, double>
 {
     auto extents = alpaka::getExtents(buffer);
