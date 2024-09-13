@@ -8,6 +8,8 @@
 
 //! alpaka version of explicit finite-difference 2D heat equation solver
 //!
+//! \tparam T_SharedMemSize1D size of the shared memory box
+//!
 //! Solving equation u_t(x, t) = u_xx(x, t) + u_yy(y, t) using a simple explicit scheme with
 //! forward difference in t and second-order central difference in x and y
 //!
@@ -20,6 +22,7 @@
 //! \param dx step in x
 //! \param dy step in y
 //! \param dt step in t
+template<size_t T_SharedMemSize1D>
 struct StencilKernel
 {
     template<typename TAcc, typename TMdSpan, typename TDim, typename TIdx>
@@ -32,6 +35,9 @@ struct StencilKernel
         double const dy,
         double const dt) const -> void
     {
+        auto& sdata = alpaka::declareSharedVar<double[T_SharedMemSize1D], __COUNTER__>(acc);
+        auto halo = alpaka::Vec<TDim, TIdx>{2, 2};
+
         // Get indexes
         auto const gridBlockIdx = alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc);
         auto const blockThreadIdx = alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc);
@@ -46,18 +52,28 @@ struct StencilKernel
 
         auto const threadIdx1D = alpaka::mapIdx<1>(blockThreadIdx, blockThreadExtent)[0u];
 
+        for(auto i = threadIdx1D; i < T_SharedMemSize1D; i += numThreadsPerBlock)
+        {
+            auto idx2d = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize + halo);
+            idx2d = idx2d + blockStartThreadIdx;
+            sdata[i] = uCurrBuf(idx2d[0], idx2d[1]);
+        }
+
+        alpaka::syncBlockThreads(acc);
+
         // go over only core cells
         for(auto i = threadIdx1D; i < chunkSize.prod(); i += numThreadsPerBlock)
         {
             auto idx2D = alpaka::mapIdx<2>(alpaka::Vec(i), chunkSize);
             idx2D = idx2D + alpaka::Vec<TDim, TIdx>{1, 1}; // offset for halo above and to the left
+            auto localIdx1D = alpaka::mapIdx<1>(idx2D, chunkSize + halo)[0u];
 
-            auto const bufIdx = idx2D + blockStartThreadIdx;
+            auto bufIdx = idx2D + blockStartThreadIdx;
 
-            uNextBuf(bufIdx[0], bufIdx[1])
-                = uCurrBuf(bufIdx[0], bufIdx[1]) * (1.0 - 2.0 * rX - 2.0 * rY)
-                  + uCurrBuf(bufIdx[0], bufIdx[1] + 1) * rX + uCurrBuf(bufIdx[0], bufIdx[1] - 1) * rX
-                  + uCurrBuf(bufIdx[0] + 1, bufIdx[1]) * rY + uCurrBuf(bufIdx[0] - 1, bufIdx[1]) * rY;
+            uNextBuf(bufIdx[0], bufIdx[1]) = sdata[localIdx1D] * (1.0 - 2.0 * rX - 2.0 * rY)
+                                             + sdata[localIdx1D - 1] * rX + sdata[localIdx1D + 1] * rX
+                                             + sdata[localIdx1D - chunkSize[1] - halo[1]] * rY
+                                             + sdata[localIdx1D + chunkSize[1] + halo[1]] * rY;
         }
     }
 };
