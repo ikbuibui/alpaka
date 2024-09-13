@@ -5,7 +5,6 @@
 #pragma once
 
 #include "analyticalSolution.hpp"
-#include "helpers.hpp"
 
 #include <alpaka/alpaka.hpp>
 
@@ -18,24 +17,17 @@
 //!
 //! \param bufData Current buffer data with grid values of u for each x, y pair and the current value of t:
 //!                 u(x, y, t) | t = t_current
-//! \param pitch The pitch (or stride) in memory corresponding to the TDim grid in the accelerator's memory.
-//!              This is used to calculate memory offsets when accessing elements in the buffers.
 //! \param dx
 //! \param dy
 struct InitializeBufferKernel
 {
-    template<typename TAcc, typename TDim, typename TIdx>
-    ALPAKA_FN_ACC auto operator()(
-        TAcc const& acc,
-        double* const bufData,
-        alpaka::Vec<TDim, TIdx> const pitch,
-        double dx,
-        double dy) const -> void
+    template<typename TAcc, typename TMdSpan>
+    ALPAKA_FN_ACC auto operator()(TAcc const& acc, TMdSpan bufData, double dx, double dy) const -> void
     {
         // Get indexes
         auto const gridThreadIdx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
 
-        *getElementPtr(bufData, gridThreadIdx, pitch)
+        bufData(gridThreadIdx[0], gridThreadIdx[1])
             = analyticalSolution(acc, gridThreadIdx[1] * dx, gridThreadIdx[0] * dy, 0.0);
     }
 };

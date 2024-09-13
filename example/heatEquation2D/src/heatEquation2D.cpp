@@ -75,13 +75,9 @@ auto example(TAccTag const&) -> int
     // Initialize host-buffer
     auto uBufHost = alpaka::allocBuf<double, Idx>(devHost, extent);
 
-    // // Accelerator buffer
-    // Accelerator buffer
+    // Accelerator buffers
     auto uCurrBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
     auto uNextBufAcc = alpaka::allocBuf<double, Idx>(devAcc, extent);
-
-    auto const pitchCurrAcc{alpaka::getPitchesInBytes(uCurrBufAcc)};
-    auto const pitchNextAcc{alpaka::getPitchesInBytes(uNextBufAcc)};
 
     // Create queue
     alpaka::Queue<Acc, alpaka::NonBlocking> queue{devAcc};
@@ -93,10 +89,15 @@ auto example(TAccTag const&) -> int
 
     alpaka::KernelCfg<Acc> const kernelCfg = {extent, elemPerThread};
 
-    auto workDivExtent
-        = alpaka::getValidWorkDiv(kernelCfg, devAcc, initBufferKernel, uCurrBufAcc.data(), pitchCurrAcc, dx, dy);
+    auto workDivExtent = alpaka::getValidWorkDiv(
+        kernelCfg,
+        devAcc,
+        initBufferKernel,
+        alpaka::experimental::getMdSpan(uCurrBufAcc),
+        dx,
+        dy);
 
-    alpaka::exec<Acc>(queue, workDivExtent, initBufferKernel, uCurrBufAcc.data(), pitchCurrAcc, dx, dy);
+    alpaka::exec<Acc>(queue, workDivExtent, initBufferKernel, alpaka::experimental::getMdSpan(uCurrBufAcc), dx, dy);
 
     alpaka::KernelCfg<Acc> const computeCfg = {numNodes, elemPerThread};
 
@@ -106,9 +107,11 @@ auto example(TAccTag const&) -> int
         computeCfg,
         devAcc,
         stencilKernel,
-        uCurrBufAcc.data(),
-        uNextBufAcc.data(),
-        pitchCurrAcc);
+        alpaka::experimental::getMdSpan(uCurrBufAcc),
+        alpaka::experimental::getMdSpan(uNextBufAcc),
+        dx,
+        dy,
+        dt);
 
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
@@ -118,16 +121,14 @@ auto example(TAccTag const&) -> int
             queue,
             workDiv,
             stencilKernel,
-            uCurrBufAcc.data(),
-            uNextBufAcc.data(),
-            pitchCurrAcc,
-            pitchNextAcc,
+            alpaka::experimental::getMdSpan(uCurrBufAcc),
+            alpaka::experimental::getMdSpan(uNextBufAcc),
             dx,
             dy,
             dt);
 
         // Apply boundaries
-        applyBoundaries<Acc>(workDivExtent, queue, uNextBufAcc.data(), pitchNextAcc, step, dx, dy, dt);
+        applyBoundaries<Acc>(workDivExtent, queue, alpaka::experimental::getMdSpan(uNextBufAcc), step, dx, dy, dt);
 
 #ifdef PNGWRITER_ENABLED
         if((step - 1) % 100 == 0)
