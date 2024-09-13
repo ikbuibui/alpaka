@@ -49,17 +49,10 @@ struct BoundaryKernel
     }
 };
 
-template<typename TAcc, typename TDev, typename TQueue, typename... TArgs>
-auto applyBoundaries(
-    TDev const& devAcc,
-    alpaka::Vec<alpaka::Dim<TAcc>, alpaka::Idx<TAcc>> const& extent,
-    alpaka::Vec<alpaka::Dim<TAcc>, alpaka::Idx<TAcc>> const& elemPerThread,
-    TQueue& queue,
-    TArgs&&... args) -> void
+template<typename TAcc, typename TWorkDiv, typename TQueue, typename... TArgs>
+auto applyBoundaries(TWorkDiv const& workDiv, TQueue& queue, TArgs&&... args) -> void
 {
-    static alpaka::KernelCfg<TAcc> const boundaryCfg = {extent, elemPerThread};
     static BoundaryKernel boundaryKernel{};
-    static auto const workDivBoundary = alpaka::getValidWorkDiv(boundaryCfg, devAcc, boundaryKernel, args...);
 
-    alpaka::exec<TAcc>(queue, workDivBoundary, boundaryKernel, args...);
+    alpaka::exec<TAcc>(queue, workDiv, boundaryKernel, args...);
 }

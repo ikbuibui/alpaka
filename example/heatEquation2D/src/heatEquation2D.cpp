@@ -127,7 +127,7 @@ auto example(TAccTag const&) -> int
             dt);
 
         // Apply boundaries
-        applyBoundaries<Acc>(devAcc, extent, elemPerThread, queue, uNextBufAcc.data(), pitchNextAcc, step, dx, dy, dt);
+        applyBoundaries<Acc>(workDivExtent, queue, uNextBufAcc.data(), pitchNextAcc, step, dx, dy, dt);
 
 #ifdef PNGWRITER_ENABLED
         if((step - 1) % 100 == 0)
