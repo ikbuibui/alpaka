@@ -99,19 +99,39 @@ auto example(TAccTag const&) -> int
 
     alpaka::exec<Acc>(queue, workDivExtent, initBufferKernel, alpaka::experimental::getMdSpan(uCurrBufAcc), dx, dy);
 
-    alpaka::KernelCfg<Acc> const computeCfg = {numNodes, elemPerThread};
+
+    // Appropriate chunk size to split your problem for your Acc
+    constexpr Idx xSize = 16u;
+    constexpr Idx ySize = 16u;
+    constexpr alpaka::Vec<Dim, Idx> chunkSize{ySize, xSize};
+
+    constexpr alpaka::Vec<Dim, Idx> numChunks{
+        alpaka::core::divCeil(numNodes[0], chunkSize[0]),
+        alpaka::core::divCeil(numNodes[1], chunkSize[1]),
+    };
+
+    assert(
+        numNodes[0] % chunkSize[0] == 0 && numNodes[1] % chunkSize[1] == 0
+        && "Domain must be divisible by chunk size");
 
     StencilKernel stencilKernel;
 
-    auto workDiv = alpaka::getValidWorkDiv(
-        computeCfg,
+    // Get max threads that can be run in a block for this kernel
+    auto const kernelFunctionAttributes = alpaka::getFunctionAttributes<Acc>(
         devAcc,
         stencilKernel,
         alpaka::experimental::getMdSpan(uCurrBufAcc),
         alpaka::experimental::getMdSpan(uNextBufAcc),
+        chunkSize,
         dx,
         dy,
         dt);
+    auto const maxThreadsPerBlock = kernelFunctionAttributes.maxThreadsPerBlock;
+
+    auto const threadsPerBlock
+        = maxThreadsPerBlock < chunkSize.prod() ? alpaka::Vec<Dim, Idx>{maxThreadsPerBlock, 1} : chunkSize;
+
+    alpaka::WorkDivMembers<Dim, Idx> workDiv{numChunks, threadsPerBlock, elemPerThread};
 
     // Simulate
     for(uint32_t step = 1; step <= numTimeSteps; ++step)
@@ -123,6 +143,7 @@ auto example(TAccTag const&) -> int
             stencilKernel,
             alpaka::experimental::getMdSpan(uCurrBufAcc),
             alpaka::experimental::getMdSpan(uNextBufAcc),
+            chunkSize,
             dx,
             dy,
             dt);
