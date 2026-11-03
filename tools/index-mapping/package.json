@@ -3,8 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test visualization.test.mjs layout.test.mjs && playwright test",
-    "test:engine": "node test.mjs"
+    "test": "npm run test:unit && npm run test:browser",
+    "test:unit": "node --test *.test.mjs",
+    "test:browser": "playwright test",
+    "test:engine": "node test.mjs",
+    "capture": "playwright test --config capture.config.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1"

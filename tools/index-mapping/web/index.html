@@ -10,13 +10,13 @@
   <script type="module" src="app.mjs"></script>
 </head>
 <body>
-  <header class="masthead">
+  <header class="masthead" data-fit-above>
     <a class="brand" href="./">alpaka<span>/ index lab</span></a>
     <div class="top-actions"><a id="download-validator" class="download-link" href="./godbolt-validation.cpp" download hidden>Download CPU/CUDA validator</a><button id="share" type="button">Copy configuration link</button><button id="reset" type="button">Reset</button></div>
   </header>
   <main>
     <h1 class="sr-only">Index mapping explorer</h1>
-    <div id="workspace-toolbar" class="workspace-toolbar" aria-label="Workspace controls">
+    <div id="workspace-toolbar" class="workspace-toolbar" aria-label="Workspace controls" data-fit-above>
       <div class="pane-toggles">
         <button type="button" data-toggle-pane="config" aria-controls="config-pane" aria-expanded="true">Configure</button>
         <button type="button" data-toggle-pane="workers" aria-controls="worker-pane" aria-expanded="true">Workers</button>
@@ -26,7 +26,7 @@
       <p id="launch-summary" class="launch-summary"></p>
       <button id="reset-layout" type="button" title="Restore default pane widths and visibility">Reset layout</button>
     </div>
-    <div id="status" class="status" role="status">Loading the WebAssembly mapping engine…</div>
+    <div id="status" class="status" role="status" data-fit-above>Loading the WebAssembly mapping engine…</div>
     <div id="workspace" class="workspace" data-config-collapsed="false" data-workers-collapsed="false">
       <aside id="config-pane" class="configuration panel" aria-labelledby="config-title">
         <div class="panel-heading"><h2 id="config-title">Configure</h2><button type="button" data-toggle-pane="config" aria-controls="config-pane" aria-expanded="true" aria-label="Hide configuration">×</button></div>
@@ -94,12 +94,12 @@
         </div>
       </section>
     </div>
-    <div id="workspace-resizebar" class="workspace-resizebar">
+    <div id="workspace-resizebar" class="workspace-resizebar" data-fit-region>
       <div id="height-splitter" class="height-splitter" role="separator" tabindex="0" aria-label="Resize workspace height" aria-orientation="horizontal" aria-controls="workspace" aria-valuemin="480" aria-valuemax="10000" aria-valuenow="800" title="Drag or use Up/Down to resize; double-click for automatic fit"></div>
       <button id="fit-height" type="button" disabled title="Fit workspace to the remaining window height">Fit height</button>
     </div>
-    <section id="timeline-panel" class="panel timeline-panel" aria-labelledby="timeline-title">
-      <div id="playback-bar" class="playback-bar" role="group" aria-label="Logical iteration playback">
+    <section id="timeline-panel" class="panel timeline-panel" aria-labelledby="timeline-title" data-fit-region>
+      <div id="playback-bar" class="playback-bar" role="group" aria-label="Logical iteration playback" data-fit-chrome>
         <button id="play" type="button" aria-pressed="false">Play</button>
         <label class="scrubber">Logical step <input id="timeline-step" type="range" min="0" max="0" value="0" aria-label="Logical iteration step"><output id="step-label" for="timeline-step"></output></label>
         <button id="expand-timeline" type="button" aria-expanded="false" aria-controls="timeline-details">Expand timeline</button>
@@ -118,8 +118,8 @@
         <details class="timeline-key"><summary>Legend &amp; interpretation</summary><p class="timeline-note">Vivid = current · muted = past · unfilled = future · dark row borders = selected thread · event ring = focused assignment · — = no assignment · crossed out = rejected by guard. Ten block color families cycle; use labels and selection to distinguish them. Click a column to step, or an event to trace its index.</p></details>
       </div>
     </section>
-    <details id="assignment-details" class="panel inspector">
-      <summary>Assignment details <span>Calculation · C++ snippets · assignments · diagnostics</span></summary>
+    <details id="assignment-details" class="panel inspector" data-fit-region>
+      <summary data-fit-chrome>Assignment details <span>Calculation · C++ snippets · assignments · diagnostics</span></summary>
       <div class="tabs" role="tablist" aria-label="Assignment details">
         <button id="tab-calculation" role="tab" aria-selected="true" aria-controls="calculation" data-tab="calculation">Calculation</button>
         <button id="tab-code" role="tab" aria-selected="false" aria-controls="code" data-tab="code">C++ snippets</button>
@@ -131,7 +131,7 @@
       <div id="table" role="tabpanel" aria-labelledby="tab-table" hidden></div>
       <div id="diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden></div>
     </details>
-    <footer><span>Index iteration explorer · not a device scheduler.</span><details><summary>Build &amp; provenance</summary><p id="provenance">No external runtime services. No Sphinx dependency.</p></details></footer>
+    <footer data-fit-region><span data-fit-chrome>Index iteration explorer · not a device scheduler.</span><details><summary data-fit-chrome>Build &amp; provenance</summary><p id="provenance">No external runtime services. No Sphinx dependency.</p></details></footer>
   </main>
 </body>
 </html>

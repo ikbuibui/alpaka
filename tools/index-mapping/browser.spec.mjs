@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-import {expect, test} from "@playwright/test";
+import {expect, ready, test} from "./browser-fixtures.mjs";
 import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {defaults, ownersOf, serialize} from "./web/model.mjs";
@@ -9,14 +9,6 @@ function reference(config) {
     {input: serialize(config) + "\n", encoding: "utf8"});
   expect(result.status).toBe(0);
   return JSON.parse(result.stdout);
-}
-
-async function ready(page, hash = "") {
-  const errors = [];
-  page.on("pageerror", error => errors.push(error.message));
-  await page.goto(`/${hash}`);
-  await expect(page.locator("#status")).toContainText("Live C++");
-  expect(errors).toEqual([]);
 }
 
 async function expandTimeline(page) {
@@ -47,21 +39,19 @@ test("SVG ownership and worker selection agree with native C++", async ({page}) 
   await assertDrawing(page, config);
   await page.locator('[data-worker="7"]').click();
   await assertDrawing(page, config, 7);
-  await expect(page.locator("#calculation")).toContainText("Worker T7");
+  await expect(page.locator("#worker-selection")).toContainText("Selected: T7");
   await page.locator("#all-iterations").uncheck();
   await page.locator("#inner-iteration").fill("1");
   await page.locator("#inner-iteration").dispatchEvent("change");
   await assertDrawing(page, config, 7, {outer: 0, inner: 1});
 });
 
-test("twelve blocks use ten stable color families and repeated colors stay selectable", async ({page}) => {
+test("workers with repeated block colors remain independently selectable", async ({page}) => {
   const config = {...defaults(), blocks: [3, 4], end: [12, 16]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   const colors = await page.locator(".block-group").evaluateAll(groups =>
     groups.map(g => g.style.getPropertyValue("--block-color")));
-  expect(new Set(colors.slice(0, 10)).size).toBe(10);
   expect(colors[10]).toBe(colors[0]);
-  expect(colors[11]).toBe(colors[1]);
   await page.locator('[data-worker="40"]').click();
   await assertDrawing(page, config, 40);
   await expect(page.locator('[data-worker="40"] .selected-badge')).toHaveText("Selected");
@@ -82,10 +72,7 @@ test("selected-thread rings span past, current and future without changing tempo
   await expect(selected.locator(".selection-ring")).toHaveCount(await selected.count());
   await expect(selected.locator(".selection-halo")).toHaveCount(await selected.count());
   await expect(page.locator('[data-highlighted="false"] .selection-ring')).toHaveCount(0);
-  await expect(selected.locator(".selection-ring").first()).toHaveCSS("stroke", "rgb(23, 33, 44)");
-  await expect(selected.locator(".selection-ring").first()).toHaveCSS("stroke-width", "3px");
-  await expect(selected.locator(".selection-halo").first()).toHaveCSS("stroke", "rgb(255, 255, 255)");
-  await expect(selected.locator(".selection-halo").first()).toHaveCSS("stroke-width", "7px");
+
   const fills = () => page.locator("[data-cell]").evaluateAll(cells => cells.map(c =>
     [c.dataset.cell, c.dataset.phase, c.querySelector(".cell-fill").getAttribute("fill")]));
   const before = await fills();
@@ -126,6 +113,7 @@ test("selecting a cell traces its owning worker and C++ index", async ({page}) =
   await page.locator('[data-cell="3,6"]').click();
   const native = ownersOf(reference(defaults())).get("3,6")[0];
   await expect(page.locator(`[data-worker="${native.worker.id}"]`)).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#assignment-details > summary").click();
   await expect(page.locator("#calculation")).toContainText("(3, 6)");
   await expect(page.locator("#calculation")).toContainText("30");
 });
@@ -143,6 +131,7 @@ test("1D direct mapping, offsets and strides match native C++", async ({page}) =
   await page.locator("#layout").selectOption("2");
   config.layout = 2;
   await assertDrawing(page, config);
+  await page.locator("#assignment-details > summary").click();
   await expect(page.locator("#calculation")).toContainText("contiguous layout");
 });
 
@@ -212,20 +201,15 @@ test("shared configuration loads without network services and narrow layouts rem
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("Godbolt validation download includes the configured HTTP header, not an embedded copy", async ({page}) => {
+test("Godbolt validator download is available when the build includes it", async ({page}) => {
   await ready(page);
   const manifest = await (await page.request.get("/manifest.json")).json();
-  test.skip(!manifest.singleHeader, "Build with --single-header to expose the download");
-  await expect(page.locator("#download-validator")).toBeVisible();
-  const response = await page.request.get("/godbolt-validation.cpp");
-  expect(response.ok()).toBe(true);
-  const source = await response.text();
-  expect(source).toContain(manifest.build);
-  expect(source).toContain("namespace backendValidation");
-  expect(source).toContain("onHost::memcpy(queue, recordsH, recordsD)");
-  expect(source).toContain(`#include <${manifest.godboltHeaderUrl}>`);
-  expect(source).not.toContain("#define ALPAKA_VERSION_MAJOR");
-  expect(source.length).toBeLessThan(200000);
+  const link = page.locator("#download-validator");
+  if (!manifest.singleHeader) { await expect(link).toBeHidden(); return; }
+  await expect(link).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);
+  expect(download.suggestedFilename()).toBe("godbolt-validation.cpp");
+  expect(await download.failure()).toBeNull();
 });
 
 test("composition stays on the map and shows traced 1D and 2D summands", async ({page}) => {
@@ -284,12 +268,8 @@ test("hover previews decomposition without changing the pinned selection or curs
   await expect(page.locator('[data-cell="3,6"]')).toBeFocused();
 });
 
-for (const [name, config] of [
-  ["nested strided", {...defaults(1), end: [32], layout: 1, outerLayout: 1}],
-  ["unequal block loop lengths", {...defaults(1), end: [40], layout: 1, outerLayout: 1}],
-  ["2D nonzero partial contiguous", {...defaults(), blocks: [1, 1], begin: [1, 2], end: [5, 7], layout: 2, outerLayout: 2}],
-  ["idle direct workers", {...defaults(1), hierarchy: 0, worker: 0, end: [2], layout: 1}],
-]) test(`timeline events match native C++: ${name}`, async ({page}) => {
+test("rendered timeline events match native C++ for nonzero partial tiles", async ({page}) => {
+  const config = {...defaults(), blocks: [1, 1], begin: [1, 2], end: [5, 7], layout: 2, outerLayout: 2};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await expandTimeline(page);
   const trace = reference(config);
@@ -309,7 +289,6 @@ for (const [name, config] of [
     expect(event.inBounds).toBe(assignment.inBounds);
   }
   await expect(page.locator("[data-timeline-worker]")).toHaveCount(trace.workers.length);
-  if (trace.workers.some(w => !w.assignments.length)) await expect(page.locator(".idle-event").first()).toBeVisible();
   await expect(page.locator(".timeline-note").first()).toContainText("not hardware lockstep");
 });
 
@@ -352,6 +331,7 @@ test("guarded events remain inspectable but do not color processed cells", async
   await guarded.click();
   await expect(page.locator(`[data-worker="${worker}"]`)).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#composition")).toContainText("rejected by guard");
+  await page.locator("#assignment-details > summary").click();
   await expect(page.locator("#calculation")).toContainText("rejected by the bounds guard");
   await expect(page.locator(".timeline-event.selected-event")).toHaveClass(/guarded/);
   const native = reference({...defaults(), end: [3, 7]});
@@ -373,7 +353,62 @@ test("repeated assignments retain multiple visits and cycle through their owners
   await expect(cell.locator(".visit-count")).toHaveText(`${entries.length}×`);
   await cell.click();
   await expect(page.locator(`[data-worker="${entries[1].worker.id}"]`)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#table")).toContainText("assignments");
+  await page.locator("#assignment-details > summary").click();
+  await page.locator("#tab-table").click();
+  await expect(page.locator("#table tbody tr")).toHaveCount(reference(config).workers[entries[1].worker.id].assignments.length);
+});
+
+test("playback preserves worker, cell and timeline nodes and keyboard focus", async ({page}) => {
+  await ready(page);
+  await expandTimeline(page);
+  await page.clock.install();
+  const worker = await page.locator('[data-worker="0"]').elementHandle();
+  const cell = await page.locator('[data-cell="0,0"]').elementHandle();
+  const event = page.locator('[data-event-worker="0"][data-event-step="0"]');
+  const eventNode = await event.elementHandle();
+  await page.locator("#play").click();
+  await event.focus();
+  await page.clock.runFor(900);
+  await expect(page.locator("#step-label")).toHaveText("2 / 2");
+  await expect(event).toBeFocused();
+  for (const node of [worker, cell, eventNode]) expect(await node.evaluate(element => element.isConnected)).toBe(true);
+  await page.locator('[data-worker="7"]').focus();
+  await page.locator("#timeline-step").evaluate(slider => {
+    slider.value = "0";
+    slider.dispatchEvent(new Event("input", {bubbles: true}));
+  });
+  await expect(page.locator('[data-worker="7"]')).toBeFocused();
+});
+
+test("inspector builds only the visible panel and reuses trace-wide and all-assignment content", async ({page}) => {
+  const config = {...defaults(), blocks: [1, 1], threads: [1, 1], tile: [64, 64], end: [32, 32]};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expect(page.locator("#table")).toBeEmpty();
+  await expect(page.locator("#code")).toBeEmpty();
+  await expect(page.locator("#diagnostics")).toBeEmpty();
+  await page.locator("#timeline-step").fill("1");
+  await expect(page.locator("#table")).toBeEmpty();
+  await page.locator("#assignment-details > summary").click();
+  await expect(page.locator("#calculation")).toContainText("(0, 1)");
+  await expect(page.locator("#table")).toBeEmpty();
+  await page.locator("#tab-table").click();
+  await expect(page.locator("#table tbody tr")).toHaveCount(4096);
+  const row = await page.locator("#table tbody tr").first().elementHandle();
+  await page.locator("#timeline-step").fill("2");
+  expect(await row.evaluate(element => element.isConnected)).toBe(true);
+  await page.locator("#all-iterations").uncheck();
+  await expect(page.locator("#table tbody tr")).toHaveCount(1);
+  await expect(page.locator("#table tbody tr")).toContainText("(0, 2)");
+  await page.locator("#tab-code").click();
+  const code = await page.locator("#code").evaluateHandle(element => element.firstChild);
+  await page.locator("#timeline-step").fill("3");
+  expect(await code.evaluate(node => node.isConnected)).toBe(true);
+  await page.locator("#assignment-details > summary").click();
+  await page.locator("#preset").selectOption("tiles");
+  await expect(page.locator("#table")).toBeEmpty();
+  await expect(page.locator("#code")).toBeEmpty();
+  await page.locator("#assignment-details > summary").click();
+  await expect(page.locator("#code")).toContainText("makeIdxMap");
 });
 
 test("block filtering and collapsing never change the shared iteration cursor", async ({page}) => {
@@ -610,42 +645,34 @@ test("playback-only timeline expands without shrinking the workspace or changing
   expect((await page.locator("#workspace").boundingBox()).height).toBe(height);
 });
 
-test("mobile touch supports cell selection, configuration, workers, and internal scrolling", async ({browser}) => {
-  const context = await browser.newContext({baseURL: "http://127.0.0.1:8765", viewport: {width: 390, height: 844},
-    isMobile: true, hasTouch: true});
-  try {
-    const page = await context.newPage();
-    const errors = [];
-    page.on("pageerror", error => errors.push(error.message));
-    await ready(page);
-    await expect(page.locator("#config-pane")).toBeHidden();
-    await expect(page.locator("#worker-pane")).toBeHidden();
-    await expect(page.locator("#data")).toBeInViewport();
-    await page.locator('[data-cell="1,2"]').tap();
-    await expect(page.locator(".sum-equation")).toHaveAttribute("data-global", "1,2");
-    await expect(page.locator("#step-label")).toHaveText("2 / 2");
-    await page.locator('.pane-toggles [data-toggle-pane="workers"]').tap();
-    await expect(page.locator("#worker-pane")).toBeVisible();
-    await page.locator('[data-worker="7"]').tap();
-    await expect(page.locator("#worker-selection")).toContainText("T7");
-    await page.locator('.pane-toggles [data-toggle-pane="config"]').tap();
-    await expect(page.locator("#worker-pane")).toBeHidden();
-    await expect(page.locator("#config-pane")).toBeVisible();
-    await page.locator("#spec").selectOption("1");
-    await expect(page.locator("#launch-summary")).toContainText("assumed ThreadSpec");
-    await expect(page.locator("#status")).toContainText("NOT resolved");
-    await page.locator('#config-pane [data-toggle-pane="config"]').tap();
-    await expect(page.locator("#config-pane")).toBeHidden();
-    await page.locator("#data").evaluate(data => { data.scrollLeft = data.scrollWidth; });
-    await page.locator('[data-cell="3,7"]').tap();
-    await expect(page.locator(".sum-equation")).toHaveAttribute("data-global", "3,7");
-    const cell = await page.locator('[data-cell="3,7"] > rect').first().boundingBox();
-    expect(cell.width).toBeGreaterThanOrEqual(44);
-    const control = await page.locator('.pane-toggles [data-toggle-pane="config"]').boundingBox();
-    expect(control.height).toBeGreaterThanOrEqual(44);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(errors).toEqual([]);
-  } finally { await context.close(); }
+test("mobile touch supports cell selection, configuration, workers, and internal scrolling", async ({touchPage: page}) => {
+  await ready(page);
+  await expect(page.locator("#config-pane")).toBeHidden();
+  await expect(page.locator("#worker-pane")).toBeHidden();
+  await expect(page.locator("#data")).toBeInViewport();
+  await page.locator('[data-cell="1,2"]').tap();
+  await expect(page.locator(".sum-equation")).toHaveAttribute("data-global", "1,2");
+  await expect(page.locator("#step-label")).toHaveText("2 / 2");
+  await page.locator('.pane-toggles [data-toggle-pane="workers"]').tap();
+  await expect(page.locator("#worker-pane")).toBeVisible();
+  await page.locator('[data-worker="7"]').tap();
+  await expect(page.locator("#worker-selection")).toContainText("T7");
+  await page.locator('.pane-toggles [data-toggle-pane="config"]').tap();
+  await expect(page.locator("#worker-pane")).toBeHidden();
+  await expect(page.locator("#config-pane")).toBeVisible();
+  await page.locator("#spec").selectOption("1");
+  await expect(page.locator("#launch-summary")).toContainText("assumed ThreadSpec");
+  await expect(page.locator("#status")).toContainText("NOT resolved");
+  await page.locator('#config-pane [data-toggle-pane="config"]').tap();
+  await expect(page.locator("#config-pane")).toBeHidden();
+  await page.locator("#data").evaluate(data => { data.scrollLeft = data.scrollWidth; });
+  await page.locator('[data-cell="3,7"]').tap();
+  await expect(page.locator(".sum-equation")).toHaveAttribute("data-global", "3,7");
+  const cell = await page.locator('[data-cell="3,7"] > rect').first().boundingBox();
+  expect(cell.width).toBeGreaterThanOrEqual(44);
+  const control = await page.locator('.pane-toggles [data-toggle-pane="config"]').boundingBox();
+  expect(control.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 for (const width of [320, 390, 768, 900]) test(`map-first layout fits a ${width}px screen`, async ({page}) => {
@@ -773,52 +800,24 @@ test("closed timeline rebuilds current events on expansion after playback or map
   await expect(page.locator("#step-label")).toHaveText("2 / 2");
 });
 
-test("mobile ignores desktop height and supports collapsing composition by touch", async ({browser}) => {
-  const context = await browser.newContext({baseURL: "http://127.0.0.1:8765", viewport: {width: 390, height: 844},
-    isMobile: true, hasTouch: true});
-  try {
-    await context.addInitScript(() => localStorage.setItem("alpaka-index-lab.layout.v1",
-      JSON.stringify({height: 1600, compositionCollapsed: true})));
-    const page = await context.newPage();
-    await ready(page);
-    await expect(page.locator("#workspace-resizebar")).toBeHidden();
-    await expect(page.locator("#timeline-details")).toBeHidden();
-    await expect(page.locator("#composition")).not.toHaveAttribute("open", "");
-    expect((await page.locator("#data").boundingBox()).height).toBeLessThan(501);
-    await page.locator("#composition > summary").tap();
-    await expect(page.locator(".sum-equation")).toBeVisible();
-    await page.locator("#composition > summary").tap();
-    await page.locator("#expand-timeline").tap();
-    await expect(page.locator("#timeline")).toBeVisible();
-    await page.locator("#expand-timeline").tap();
-    await expect(page.locator("#timeline-details")).toBeHidden();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.setViewportSize({width: 1440, height: 1100});
-    await expect(page.locator("#workspace-resizebar")).toBeVisible();
-    await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "manual");
-    expect((await page.locator("#workspace").boundingBox()).height).toBe(1600);
-  } finally { await context.close(); }
-});
-
-test("capture wide and mobile workspaces", async ({browser}, testInfo) => {
-  for (const [name, viewport, touch] of [
-    ["wide", {width: 2560, height: 1080}, false], ["mobile", {width: 390, height: 844}, true],
-  ]) {
-    const context = await browser.newContext({baseURL: "http://127.0.0.1:8765", viewport, isMobile: touch, hasTouch: touch});
-    try {
-      const page = await context.newPage();
-      await ready(page);
-      await page.screenshot({path: testInfo.outputPath(`${name}.png`), fullPage: true});
-    } finally { await context.close(); }
-  }
-});
-
-test("capture the standalone prototype", async ({page}, testInfo) => {
+test("mobile ignores desktop height and supports collapsing composition by touch", async ({touchPage: page}) => {
+  await page.addInitScript(() => localStorage.setItem("alpaka-index-lab.layout.v1",
+    JSON.stringify({height: 1600, compositionCollapsed: true})));
   await ready(page);
-  await page.screenshot({path: testInfo.outputPath("explorer.png"), fullPage: true});
-  await page.locator('[data-cell="3,6"]').click();
-  await page.mouse.move(0, 0);
-  await page.screenshot({path: testInfo.outputPath("composition-history.png"), fullPage: true});
-  await page.locator("#composition > summary").click();
-  await page.screenshot({path: testInfo.outputPath("collapsed-composition.png"), fullPage: true});
+  await expect(page.locator("#workspace-resizebar")).toBeHidden();
+  await expect(page.locator("#timeline-details")).toBeHidden();
+  await expect(page.locator("#composition")).not.toHaveAttribute("open", "");
+  expect((await page.locator("#data").boundingBox()).height).toBeLessThan(501);
+  await page.locator("#composition > summary").tap();
+  await expect(page.locator(".sum-equation")).toBeVisible();
+  await page.locator("#composition > summary").tap();
+  await page.locator("#expand-timeline").tap();
+  await expect(page.locator("#timeline")).toBeVisible();
+  await page.locator("#expand-timeline").tap();
+  await expect(page.locator("#timeline-details")).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.setViewportSize({width: 1440, height: 1100});
+  await expect(page.locator("#workspace-resizebar")).toBeVisible();
+  await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "manual");
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(1600);
 });

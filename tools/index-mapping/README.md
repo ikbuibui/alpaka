@@ -125,7 +125,9 @@ stretching coordinates into wide rectangles.
   and interpretation notes below the strip; collapsing hides them without changing
   the logical cursor or canvas height. Timeline rows are rendered only when expanded.
   Calculation, snippets, assignment tables, and diagnostics live in the initially
-  collapsed **Assignment details** section. Build provenance is also collapsible.
+  collapsed **Assignment details** section. Only its visible tab is rendered; unchanged
+  snippets, diagnostics, and all-assignment tables are reused while stepping.
+  Build provenance is also collapsible.
 
 Layout preferences are separate from shared C++ mapping configurations. Storage
 failures or malformed saved preferences fall back safely; the explorer still works.
@@ -299,6 +301,30 @@ replaced with the local header. It is opt-in because a published version can
 legitimately lag unmerged alpaka changes; the regular CI remains tree-local.
 CUDA execution still requires hardware even when the HTTP-header CUDA build succeeds.
 
+## Frontend structure
+
+The frontend has three separate kinds of data:
+
+- `web/model.mjs` defines shared mapping configuration and serialization. C++ remains
+  the authority for worker identities, index sequences, and effective policies.
+- `web/exploration.mjs` builds a trace model once per engine result: ownership,
+  timeline, worker/block lookups, diagnostics, and snippets. Exploration state has
+  one logical-step cursor and a selected worker ID; the selected assignment and
+  outer/inner coordinates are derived, never synchronized by a renderer.
+- `web/app.mjs` connects controls and playback to those transitions and renders the
+  linked domain/worker views. `web/timeline.mjs` and `web/inspector.mjs` own their DOM
+  updates. Worker buttons and map-cell groups remain mounted until the trace changes;
+  timeline events remain mounted until its window, filter, or collapsed groups change.
+  Rendering does not change exploration state. Presentation failures are reported
+  separately from rejected engine requests and do not discard the valid trace.
+
+`web/layout.mjs` owns local workspace preferences, not exploration state. Both resize
+axes share pointer/keyboard handling. HTML `data-fit-region` markers declare the
+regions reserved below the desktop workspace; optional `data-fit-chrome` descendants
+identify their collapsed footprint. Height measurement and observation use the same
+regions; `data-fit-above` marks content whose size changes can move the workspace.
+Neither depends on footer or inspector descendant selectors.
+
 ## Verification and freshness
 
 ```sh
@@ -307,7 +333,12 @@ npm --prefix tools/index-mapping ci
 cd tools/index-mapping
 npx playwright install chromium
 npm test
+# Optional: regenerate desktop/wide/mobile screenshots (not visual regression tests).
+npm run capture
 ```
+
+`npm run test:unit` and `npm run test:browser` run the frontend layers separately.
+Engine/backend checks remain `npm run test:engine`; they require built artifacts.
 
 For an installed Chromium, omit the install command and use
 `CHROMIUM_PATH=/usr/bin/chromium npm test` instead.
@@ -321,7 +352,8 @@ For an installed Chromium, omit the install command and use
   they also execute the locally resolved Godbolt source. With `--validate-http-header`
   they additionally test the actual downloaded URL header and record its hash. Optional CUDA builds run
   the same suite on a GPU when available; strict GPU execution can be required.
-- Pure visualization and layout tests check nested-loop alignment, sparse/idle
+- Pure exploration, visualization, and layout tests check selection transitions,
+  cursor/iteration clamping, trace replacement, nested-loop alignment, sparse/idle
   workers, history, repeated ownership, deterministic palettes, bounded timeline
   windows, saved-preference validation, and pane-width constraints.
 - Browser tests compare rendered ownership/highlighting and timeline events with
@@ -329,8 +361,10 @@ For an installed Chromium, omit the install command and use
   history, playback, reduced motion, filtering, range editing, guards, errors,
   shared configurations, pane resizing/persistence, storage failures, full-width
   desktops, vertical fit/drag sizing, composition disclosure persistence, 320–900px
-  layouts, and mobile touch selection. Screenshots are saved under
-  `build/browser-results/`.
+  layouts, and mobile touch selection. They also check DOM/focus preservation during
+  playback and lazy inspector rendering. Fixtures assert uncaught page errors through
+  teardown, including touch contexts. Browser results are saved under
+  `build/browser-results/`; optional captures go to `build/screenshots/`.
 - Source fingerprints cover the alpaka headers, adapter, and build script; tests
   reject stale engines and stale copied UI assets. Every response carries the
   build identity, which the browser checks against its manifest.
@@ -355,11 +389,14 @@ Rebuild after editing sources; do not reuse a WASM module from another revision.
 - `build.py`: native/WASM/single-header builds, provenance, and static site assembly.
 - `validate_backend.cpp`: real CPU/CUDA kernel launches, per-worker buffer records,
   copy-back checks, independent coverage checks, and HTTP-include Godbolt export entry point.
-- `web/`: dependency-free controls, SVG rendering, and trace inspection.
-- `test.mjs`: conformance and independent semantic checks.
+- `web/`: dependency-free configuration, exploration state, scoped rendering, and layout.
+- `test.mjs`: conformance, independent semantic checks, and downloadable-export checks.
+- `exploration.test.mjs`: selection transitions and trace-derived model invariants.
 - `visualization.test.mjs`: dependency-free tests for timeline and color/history helpers.
 - `layout.test.mjs`: saved-layout migration/validation, width constraints, and automatic-height tests.
-- `browser.spec.mjs`: rendered-output checks using Playwright.
+- `browser.spec.mjs`: rendered-output and interaction checks using Playwright.
+- `browser-fixtures.mjs`: shared desktop/touch fixtures and runtime-error checks.
+- `capture.spec.mjs`: opt-in screenshot generation, separate from the test suite.
 
 The generated `build/site/` is an ordinary static site. We can review and iterate
 here first, then embed the same assets or mount the viewer inside Sphinx. No Sphinx

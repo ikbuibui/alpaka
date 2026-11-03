@@ -91,6 +91,11 @@ function native(binary) {
 const reference = native(`${build}mapping-native`);
 assert.equal(reference.length, requests.length);
 if (manifest.singleHeader) {
+  const exported = readFileSync(`${build}godbolt-validation.cpp`, "utf8");
+  assert(exported.includes(`#include <${manifest.godboltHeaderUrl}>`), "Godbolt export must import the configured HTTP header");
+  assert(!exported.includes("#define ALPAKA_VERSION_MAJOR"), "Godbolt export must not embed an alpaka header");
+  assert(exported.includes(manifest.build), "Godbolt export must identify its build");
+  assert.equal(readFileSync(`${build}site/godbolt-validation.cpp`, "utf8"), exported, "Stale downloadable validator");
   assert(existsSync(`${build}mapping-single-header`));
   assert.deepEqual(native(`${build}mapping-single-header`), reference, "Godbolt single header differs from regular headers");
 }
