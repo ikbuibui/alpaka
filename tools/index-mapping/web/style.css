@@ -44,7 +44,8 @@ h2 small { display: block; font-size: 10px; font-weight: 400; color: var(--muted
 #config-splitter { grid-column: 2; }
 .worker-view { grid-column: 3; }
 #workers-splitter { grid-column: 4; }
-.diagram-panel { grid-column: 5; }
+/* Scroll the surrounding details rather than squeezing the canvas out of short panes. */
+.diagram-panel { grid-column: 5; overflow-y: auto; }
 .pane-splitter { cursor: col-resize; touch-action: none; position: relative; border-radius: 4px; }
 .pane-splitter::after { content: ""; position: absolute; width: 3px; height: 44px; top: calc(50% - 22px); left: calc(50% - 1.5px); background: #c8d3dc; border-radius: 3px; }
 .pane-splitter:hover, .pane-splitter:focus-visible { background: #dfeaf1; }
@@ -84,7 +85,7 @@ h4 { font-size: 10px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .view-options { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .view-options label { display: flex; gap: 6px; align-items: center; font-size: 10px; }
 .view-options select { width: 130px; font-size: 11px; padding-block: 5px; }
-#data { overflow: auto; min-height: 0; flex: 1 1 0; margin: 0 8px; overscroll-behavior: contain; }
+#data { overflow: auto; min-height: 200px; flex: 1 1 0; margin: 0 8px; overscroll-behavior: contain; }
 #data svg { display: block; width: 100%; height: 100%; }
 #data svg text { font: 10px ui-monospace, monospace; fill: #435365; pointer-events: none; }
 #data svg .axis { font: 9px ui-monospace, monospace; fill: #637486; }

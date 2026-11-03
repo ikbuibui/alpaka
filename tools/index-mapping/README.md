@@ -103,6 +103,8 @@ stretching coordinates into wide rectangles.
   are saved locally. **Fit height** or double-clicking the separator restores automatic
   fitting. A 480px minimum keeps short windows usable; larger manual heights scroll
   the page. Expanded timeline/details content never shrinks the main workspace.
+  In short or narrow desktop panes, the domain panel scrolls vertically to keep
+  at least 200px of canvas available alongside the composition and controls.
 - **Configure / Workers** toggle the corresponding pane. Collapsing either gives its
   space to the data domain; the selected worker's identity stays visible in the
   domain header. Widths, height mode, and desktop visibility are saved locally when storage is

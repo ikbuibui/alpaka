@@ -146,6 +146,23 @@ test("1D direct mapping, offsets and strides match native C++", async ({page}) =
   await expect(page.locator("#calculation")).toContainText("contiguous layout");
 });
 
+test("vector edits preserve focus when tabbing or clicking the next component", async ({page}) => {
+  await ready(page);
+  const row = page.locator('[data-field="begin"][data-dimension="0"]');
+  const column = page.locator('[data-field="begin"][data-dimension="1"]');
+  await row.fill("1");
+  await page.keyboard.press("Tab");
+  await expect(column).toBeFocused();
+  await column.fill("2");
+  await row.click();
+  await expect(row).toBeFocused();
+  await expect(column).toHaveValue("2");
+  await assertDrawing(page, {...defaults(), begin: [1, 2]});
+  await page.locator("#dim").selectOption("1");
+  await expect(page.locator('[data-field="begin"]')).toHaveCount(1);
+  await expect(page.locator('[data-field="begin"]')).toHaveAttribute("aria-label", "Range begin (inclusive), x");
+});
+
 test("partial tiles expose guarded assignments", async ({page}) => {
   await ready(page);
   await page.locator("#preset").selectOption("uneven");
@@ -463,6 +480,25 @@ test("wide desktops use the available width and keep the main view above details
   expect(fits).toBe(true);
   await expandTimeline(page);
   expect((await page.locator('.timeline-table th[scope="row"]').first().boundingBox()).width).toBeLessThanOrEqual(180);
+});
+
+test("short desktop panes retain a usable canvas when configuration is widened", async ({page}) => {
+  await page.setViewportSize({width: 901, height: 768});
+  await ready(page);
+  const workspaceHeight = (await page.locator("#workspace").boundingBox()).height;
+  const canvas = page.locator("#data");
+  expect((await canvas.boundingBox()).height).toBeGreaterThanOrEqual(200);
+  await page.locator("#config-splitter").focus();
+  await page.keyboard.press("End");
+  expect((await canvas.boundingBox()).height).toBeGreaterThanOrEqual(200);
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(workspaceHeight);
+  expect(await page.locator("#domain-pane").evaluate(pane => pane.scrollHeight > pane.clientHeight)).toBe(true);
+  await page.locator("#all-iterations").uncheck();
+  await expect(page.locator("#inner-iteration")).toBeInViewport();
+  await canvas.scrollIntoViewIfNeeded();
+  await page.locator('[data-cell="0,0"]').click();
+  await expect(page.locator("#worker-selection")).toContainText("Selected: T0");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("pane resizing works with keyboard and pointer, persists, and resets independently", async ({page}) => {

@@ -36,6 +36,12 @@ function controls() {
   $("executor").value = config.executor;
   for (const container of document.querySelectorAll("[data-vector]")) {
     const key = container.dataset.vector;
+    const inputs = container.querySelectorAll("input");
+    // A change fires during blur: replacing inputs here also removes the next focus target.
+    if (inputs.length === config.dim) {
+      inputs.forEach((input, d) => { input.value = config[key][d]; });
+      continue;
+    }
     const label = document.createElement("span");
     label.textContent = container.dataset.label;
     const row = document.createElement("div");
