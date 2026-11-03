@@ -68,22 +68,39 @@
           <div class="panel-heading"><h2>Workers ↔ logical data</h2><span>02</span></div>
           <div class="view-options">
             <span class="hint">Select a worker or a data cell to trace its assignment.</span>
-            <label>Labels<select id="labels"><option value="index">Coordinates</option><option value="linear">Linear offset</option><option value="owner">Owner ID</option></select></label>
+            <label><input id="show-composition" type="checkbox" checked> Show composition</label>
+            <label>Labels<select id="labels"><option value="index">Coordinates</option><option value="linear">Linear offset</option><option value="owner">Owner ID</option><option value="sum">Origin + local</option></select></label>
           </div>
           <div class="linked-views">
             <div class="worker-view"><h3>Worker hierarchy <span id="worker-count"></span></h3><div id="workers"></div></div>
             <div class="data-view"><h3>Logical index domain <span id="domain-size"></span></h3><div id="data"></div>
-              <div class="legend"><span><i class="swatch selected"></i>Selected worker</span><span><i class="swatch multiple"></i>Multiple owners</span><span><i class="swatch empty"></i>Unassigned / excluded</span></div>
+              <div class="legend"><span><i class="swatch current"></i>Current step · thread color</span><span><i class="swatch past"></i>Past · retained ownership</span><span><i class="swatch selected"></i>Selected worker outline</span><span>× Multiple visits / owners</span><span><i class="swatch empty"></i>Future / unassigned</span></div>
             </div>
           </div>
+          <div id="composition" class="composition" role="group" aria-label="Index composition"></div>
           <div class="iteration-bar">
             <label><input id="all-iterations" type="checkbox" checked> All assignments of selected worker</label>
             <label>Outer iteration<input id="outer-iteration" type="number" value="0" min="0" max="0"></label>
             <label>Inner iteration<input id="inner-iteration" type="number" value="0" min="0" max="0"></label>
           </div>
         </section>
+        <section class="panel timeline-panel" aria-labelledby="timeline-title">
+          <div class="panel-heading"><h2 id="timeline-title">Logical iteration timeline</h2><span>03</span></div>
+          <p class="timeline-note">Columns align the same loop iteration across workers — not hardware lockstep, elapsed time, or a synchronization barrier.</p>
+          <div class="timeline-controls">
+            <button id="step-back" type="button" aria-label="Previous logical step">◀</button>
+            <button id="play" type="button" aria-pressed="false">Play</button>
+            <button id="step-forward" type="button" aria-label="Next logical step">▶</button>
+            <label class="scrubber">Step <input id="timeline-step" type="range" min="0" max="0" value="0" aria-label="Logical iteration step"><output id="step-label" for="timeline-step"></output></label>
+            <label><input id="keep-history" type="checkbox" checked> Keep history</label>
+            <label>Show <select id="timeline-scope"><option value="all">All blocks</option><option value="block">Selected block</option></select></label>
+          </div>
+          <p id="timeline-summary" class="hint" aria-live="polite"></p>
+          <div id="timeline" class="timeline-scroll" tabindex="0" role="region" aria-label="Worker assignments by logical iteration"></div>
+          <p class="timeline-note">Vivid = current · muted = past · outline = future · — = no assignment · crossed out = rejected by guard. Block headers share a color family with their threads. Click a column to step, or an event to trace its index.</p>
+        </section>
         <section class="panel inspector">
-          <div class="panel-heading"><h2>Follow the index</h2><span>03</span></div>
+          <div class="panel-heading"><h2>Follow the index</h2><span>04</span></div>
           <div class="tabs" role="tablist" aria-label="Assignment details">
             <button id="tab-calculation" role="tab" aria-selected="true" aria-controls="calculation" data-tab="calculation">Calculation</button>
             <button id="tab-code" role="tab" aria-selected="false" aria-controls="code" data-tab="code">C++ snippets</button>

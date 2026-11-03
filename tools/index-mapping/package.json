@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test",
+    "test": "node --test visualization.test.mjs && playwright test",
     "test:engine": "node test.mjs"
   },
   "devDependencies": {

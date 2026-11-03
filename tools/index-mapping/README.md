@@ -74,11 +74,56 @@ the adapter does not instantiate or call `uniqueId`.
 - Nonzero range beginnings, strides in direct mode, partial tiles, bounds guards.
 - Linked worker/data views, per-level iterations, ownership and coverage,
   effective policies, C++ snippets, and configuration links.
+- In-map hierarchical index composition, a zero-based local-tile inset in 2D,
+  and optional origin-plus-local cell labels.
+- An all-block logical iteration timeline with shared selection, scrubbing,
+  playback, and persistent desaturated ownership history.
 
 For hierarchical mappings, the outer range stride is the tile extent and the
 inner stride is one. Both are visible in the UI; the direct-mode stride is disabled.
 Linearized worker groups need a **1D range** in the current adapter. They are not
 silently mapped into a 2D range.
+
+## Reading the linked visualizations
+
+**Composition stays on the data map.** With **Show composition** enabled, selecting
+an assignment outlines its tile in the block color, marks the tile origin, and
+routes a local-offset arrow along cell corners to the selected index. The equation
+strip shows `global = tile origin + local index` using the actual C++ trace values.
+These are the values returned by the two loops, **not raw block and thread IDs**.
+In 2D, a zero-based tile inset and row/column displacement explain the local index.
+Choose **Labels → Origin + local** to show summands in cells (two lines in 2D).
+Hover a worker or data cell to preview; click to pin the assignment. Composition
+and sum labels are disabled for direct mappings, which have no outer tile loop.
+
+**The logical iteration timeline is not a device scheduler.** Each column aligns
+one `(outer iteration, inner iteration)` pair across all workers, ordered outer
+first, then inner. Direct mappings have only inner iterations. Blocks and threads
+are not asserted to execute together: a column is a logical iteration cohort,
+not hardware lockstep, elapsed time, or a barrier. Missing assignments remain `—`;
+a worker's next outer iteration is never packed into an exhausted inner-loop gap.
+
+- Block headers, tile outlines, and worker buttons use a shared block color family.
+  Threads use related shades and explicit IDs; colors alone do not identify a worker.
+- Current assignments are vivid. Earlier assignments retain fixed, desaturated
+  ownership colors; future map cells are neutral. **Keep history** controls past
+  colors, without deleting trace records. Scrubbing backward recomputes history
+  from the cursor rather than leaving stale colors behind.
+- Use the slider, step buttons, or column headers to move every worker to the same
+  logical step. Click an event to select its worker, index, and composition.
+  Worker selection never filters other workers' current assignments out of the map.
+  **All assignments of selected worker** controls only that worker's outline overlay.
+- All blocks are shown initially, with collapsible groups and an optional
+  **Selected block** timeline filter. The logical cursor remains global when filtered.
+  Timelines show at most 24 columns around the cursor; the slider reaches every step.
+- Guard-rejected events are crossed out and remain selectable, but never color
+  processed data cells. Repeated assignments retain a count and ownership stripes
+  (up to eight recent visits); click a map cell repeatedly to inspect its visits.
+  The timeline and Assignments table retain all events, not just the last owner.
+- Playback advances at a fixed presentation cadence, **not simulated execution time**.
+  It stops at the end, on manual stepping/selection, configuration changes, or when
+  the page is hidden. Autoplay is disabled for reduced-motion preferences; manual
+  stepping and scrubbing remain available.
 
 ## Accuracy boundaries
 
@@ -213,9 +258,12 @@ For an installed Chromium, omit the install command and use
   they also execute the locally resolved Godbolt source. With `--validate-http-header`
   they additionally test the actual downloaded URL header and record its hash. Optional CUDA builds run
   the same suite on a GPU when available; strict GPU execution can be required.
-- Browser tests compare rendered ownership/highlighting with native C++ traces,
-  test selection, iteration filtering, range editing, guards, errors, shared
-  configurations, and narrow layouts. A screenshot is saved under
+- Pure visualization tests check nested-loop alignment, sparse/idle workers,
+  history, repeated ownership, deterministic palettes, and bounded timeline windows.
+- Browser tests compare rendered ownership/highlighting and timeline events with
+  native C++ traces; test composition, hover previews, shared selection, reversible
+  history, playback, reduced motion, filtering, range editing, guards, errors,
+  shared configurations, and narrow layouts. A screenshot is saved under
   `build/browser-results/`.
 - Source fingerprints cover the alpaka headers, adapter, and build script; tests
   reject stale engines and stale copied UI assets. Every response carries the
@@ -243,6 +291,7 @@ Rebuild after editing sources; do not reuse a WASM module from another revision.
   copy-back checks, independent coverage checks, and HTTP-include Godbolt export entry point.
 - `web/`: dependency-free controls, SVG rendering, and trace inspection.
 - `test.mjs`: conformance and independent semantic checks.
+- `visualization.test.mjs`: dependency-free tests for timeline and color/history helpers.
 - `browser.spec.mjs`: rendered-output checks using Playwright.
 
 The generated `build/site/` is an ordinary static site. We can review and iterate
