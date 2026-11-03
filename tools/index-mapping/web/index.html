@@ -1,0 +1,104 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>alpaka · Index mapping explorer</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="./">alpaka<span>/ index lab</span></a>
+    <span class="badge">STANDALONE PROTOTYPE</span>
+  </header>
+  <main>
+    <div class="intro">
+      <div><p class="eyebrow">PARALLELISM, MADE VISIBLE</p><h1>Where does the work go?</h1>
+        <p>Explore how workers traverse a logical index range. Powered by this checkout’s C++ <code>makeIdxMap</code>.</p></div>
+      <div class="top-actions"><a id="download-validator" class="download-link" href="./godbolt-validation.cpp" download hidden>Download CPU/CUDA validator</a><button id="share" type="button">Copy configuration link</button><button id="reset" type="button">Reset</button></div>
+    </div>
+    <div id="status" class="status" role="status">Loading the WebAssembly mapping engine…</div>
+    <div class="workspace">
+      <aside class="configuration panel">
+        <div class="panel-heading"><h2>Configure</h2><span>01</span></div>
+        <form id="config-form">
+          <label>Example<select id="preset"><option value="tiles">Hierarchical tiles</option><option value="direct">Direct mapping</option><option value="uneven">Partial tiles</option><option value="host">Host / sequential threads</option><option value="custom" disabled>Custom configuration</option></select></label>
+          <label>Dimensions<select id="dim"><option value="1">1D</option><option value="2" selected>2D</option></select></label>
+          <details open><summary>Launch specification</summary>
+            <label>Input<select id="spec"><option value="0">ThreadSpec · explicit workers</option><option value="1">FrameSpec · assumed workers</option></select></label>
+            <label>API<select id="api"><option value="0">Host / CPU</option><option value="1">CUDA / NVIDIA GPU</option><option value="2">HIP / AMD GPU</option><option value="3">oneAPI / Intel GPU</option></select></label>
+            <label>Executor<select id="executor"></select></label>
+            <div id="frames-field" class="vector-field" data-vector="frames" data-label="Number of frames"></div>
+            <p id="assumption" class="hint">Explicit block/thread extents. This does not execute a GPU kernel.</p>
+            <div class="vector-field" data-vector="blocks" data-label="Number of blocks"></div>
+            <div class="vector-field" data-vector="threads" data-label="Threads per block"></div>
+          </details>
+          <details open><summary>Logical domain</summary>
+            <div class="vector-field" data-vector="begin" data-label="Range begin (inclusive)"></div>
+            <div class="vector-field" data-vector="end" data-label="Range end (exclusive)"></div>
+            <div class="vector-field" data-vector="stride" data-label="Range stride · direct mode"></div>
+            <div class="vector-field" data-vector="tile" data-label="Tile / frame extent"></div>
+            <p class="hint">Coordinates use (row, column). The rightmost dimension varies fastest.</p>
+          </details>
+          <details open><summary>Mapping hierarchy</summary>
+            <label>Structure<select id="hierarchy"><option value="0">Direct → logical range</option><option value="1">Blocks → tiles → elements</option></select></label>
+            <div id="outer-card" class="mapping-card">
+              <p class="card-title"><span class="level">1</span> Tile origins</p>
+              <label>Worker<select id="outerWorker"><option value="0">blocksInGrid</option><option value="1">linearBlocksInGrid · 1D range only</option></select></label>
+              <label>Traversal<select id="outerTraversal" data-policy="traversal"></select></label>
+              <label>Layout<select id="outerLayout" data-policy="layout"></select></label>
+              <p class="hint">Range: [begin, end), stride = tile extent.</p>
+            </div>
+            <div class="mapping-card">
+              <p class="card-title"><span id="inner-level" class="level">2</span> <span id="inner-title">Elements inside tile</span></p>
+              <label>Worker group<select id="worker"></select></label>
+              <label>Traversal<select id="traversal" data-policy="traversal"></select></label>
+              <label>Layout<select id="layout" data-policy="layout"></select></label>
+              <p id="inner-hint" class="hint"></p>
+            </div>
+            <p class="hint">Prototype: direct or two nested levels. Warp groups, custom groups, boundary overloads, and deeper nesting are not yet supported.</p>
+          </details>
+        </form>
+      </aside>
+      <section class="results">
+        <section class="panel diagram-panel">
+          <div class="panel-heading"><h2>Workers ↔ logical data</h2><span>02</span></div>
+          <div class="view-options">
+            <span class="hint">Select a worker or a data cell to trace its assignment.</span>
+            <label>Labels<select id="labels"><option value="index">Coordinates</option><option value="linear">Linear offset</option><option value="owner">Owner ID</option></select></label>
+          </div>
+          <div class="linked-views">
+            <div class="worker-view"><h3>Worker hierarchy <span id="worker-count"></span></h3><div id="workers"></div></div>
+            <div class="data-view"><h3>Logical index domain <span id="domain-size"></span></h3><div id="data"></div>
+              <div class="legend"><span><i class="swatch selected"></i>Selected worker</span><span><i class="swatch multiple"></i>Multiple owners</span><span><i class="swatch empty"></i>Unassigned / excluded</span></div>
+            </div>
+          </div>
+          <div class="iteration-bar">
+            <label><input id="all-iterations" type="checkbox" checked> All assignments of selected worker</label>
+            <label>Outer iteration<input id="outer-iteration" type="number" value="0" min="0" max="0"></label>
+            <label>Inner iteration<input id="inner-iteration" type="number" value="0" min="0" max="0"></label>
+          </div>
+        </section>
+        <section class="panel inspector">
+          <div class="panel-heading"><h2>Follow the index</h2><span>03</span></div>
+          <div class="tabs" role="tablist" aria-label="Assignment details">
+            <button id="tab-calculation" role="tab" aria-selected="true" aria-controls="calculation" data-tab="calculation">Calculation</button>
+            <button id="tab-code" role="tab" aria-selected="false" aria-controls="code" data-tab="code">C++ snippets</button>
+            <button id="tab-table" role="tab" aria-selected="false" aria-controls="table" data-tab="table">Assignments</button>
+            <button id="tab-diagnostics" role="tab" aria-selected="false" aria-controls="diagnostics" data-tab="diagnostics">Diagnostics</button>
+          </div>
+          <div id="calculation" role="tabpanel" aria-labelledby="tab-calculation"></div>
+          <pre id="code" role="tabpanel" aria-labelledby="tab-code" hidden></pre>
+          <div id="table" role="tabpanel" aria-labelledby="tab-table" hidden></div>
+          <div id="diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden></div>
+        </section>
+        <p class="footnote">Iterations describe logical work assignment, not hardware scheduling or execution time.</p>
+      </section>
+    </div>
+    <footer id="provenance">No external runtime services. No Sphinx dependency.</footer>
+  </main>
+</body>
+</html>

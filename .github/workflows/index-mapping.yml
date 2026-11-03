@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: MPL-2.0
+name: Standalone index mapping
+
+on:
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'tools/index-mapping/**'
+      - 'script/create-single-header.sh'
+      - '.github/workflows/index-mapping.yml'
+  push:
+    branches: [dev_v3.x]
+    paths:
+      - 'include/**'
+      - 'tools/index-mapping/**'
+      - 'script/create-single-header.sh'
+      - '.github/workflows/index-mapping.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Emscripten SDK
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 4.0.19 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/mapping-emsdk"
+          test "$(git -C "$RUNNER_TEMP/mapping-emsdk" rev-parse HEAD)" = 7b4e60e4bfcba326025e373024369eaa9904af55
+          "$RUNNER_TEMP/mapping-emsdk/emsdk" install 4.0.19
+          "$RUNNER_TEMP/mapping-emsdk/emsdk" activate 4.0.19
+      - name: Build and verify native, WASM, single-header and browser results
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/mapping-emsdk/emsdk_env.sh"
+          python3 tools/index-mapping/build.py --single-header
+          node tools/index-mapping/test.mjs
+          npm --prefix tools/index-mapping ci
+          cd tools/index-mapping
+          npx playwright install --with-deps chromium
+          npm test
