@@ -2,13 +2,21 @@
 // Workspace preferences are local presentation state, separate from shared mapping configurations.
 export const layoutStorageKey = "alpaka-index-lab.layout.v1";
 const bounds = {config: [180, 420], workers: [140, 400]};
+const heightBounds = [480, 10000];
 const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
-export const defaultLayout = () => ({config: 240, workers: 200, collapsed: {config: false, workers: false}});
+export const defaultLayout = () => ({config: 240, workers: 200, height: null,
+  compositionCollapsed: false, collapsed: {config: false, workers: false}});
+
+export function fitWorkspaceHeight(viewportHeight, workspaceTop, reservedHeight) {
+  return Math.max(heightBounds[0], Math.floor(viewportHeight - workspaceTop - reservedHeight));
+}
 
 export function readLayout(raw) {
   const state = defaultLayout();
   try {
     const saved = JSON.parse(raw);
+    if (Number.isFinite(saved?.height)) state.height = clamp(saved.height, ...heightBounds);
+    if (typeof saved?.compositionCollapsed === "boolean") state.compositionCollapsed = saved.compositionCollapsed;
     for (const key of Object.keys(bounds)) {
       if (Number.isFinite(saved?.[key])) state[key] = clamp(saved[key], ...bounds[key]);
       if (typeof saved?.collapsed?.[key] === "boolean") state.collapsed[key] = saved.collapsed[key];
@@ -42,6 +50,43 @@ export function initializeLayout(onReveal = () => {}) {
   const persist = () => {
     try { localStorage.setItem(layoutStorageKey, JSON.stringify(state)); } catch { /* Storage can be disabled. */ }
   };
+  const heightSeparator = $("height-splitter");
+  const composition = $("composition");
+  composition.open = !state.compositionCollapsed;
+  composition.addEventListener("toggle", () => {
+    state.compositionCollapsed = !composition.open;
+    persist();
+  });
+  const outerHeight = element => {
+    const style = getComputedStyle(element);
+    return element.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+  };
+  function applyHeight() {
+    $("workspace-resizebar").hidden = mobile.matches;
+    if (mobile.matches) return; // Keep natural page scrolling and the saved desktop preference.
+    const timeline = $("timeline-panel"), assignment = $("assignment-details");
+    const borders = element => {
+      const style = getComputedStyle(element);
+      return parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    };
+    const margins = element => {
+      const style = getComputedStyle(element);
+      return parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+    };
+    // Only reserve collapsed chrome. Expanded timeline/details must not shrink the main view.
+    const reserved = outerHeight($("workspace-resizebar")) + outerHeight($("playback-bar")) + borders(timeline) + margins(timeline)
+      + outerHeight(assignment.querySelector(":scope > summary")) + borders(assignment) + margins(assignment)
+      + Math.max(outerHeight(document.querySelector("footer > span")), outerHeight(document.querySelector("footer > details > summary")))
+      + margins(document.querySelector("footer")) + parseFloat(getComputedStyle(document.querySelector("main")).paddingBottom);
+    const top = workspace.getBoundingClientRect().top + window.scrollY;
+    const height = state.height ?? fitWorkspaceHeight(window.innerHeight, top, reserved);
+    workspace.style.setProperty("--workspace-height", `${height}px`);
+    workspace.dataset.heightMode = state.height === null ? "fit" : "manual";
+    heightSeparator.setAttribute("aria-valuenow", Math.round(height));
+    heightSeparator.setAttribute("aria-valuemax", Math.max(heightBounds[1], height));
+    heightSeparator.setAttribute("aria-valuetext", `${Math.round(height)} pixels, ${state.height === null ? "automatic fit" : "manual height"}`);
+    $("fit-height").disabled = state.height === null;
+  }
   function apply() {
     const available = mobile.matches ? 900 : workspace.clientWidth;
     const widths = fitPaneWidths(state, available);
@@ -61,13 +106,14 @@ export function initializeLayout(onReveal = () => {}) {
       for (const button of document.querySelectorAll(`[data-toggle-pane="${key}"]`))
         button.setAttribute("aria-expanded", String(!collapsed));
     }
+    applyHeight();
   }
   function endDrag() {
     if (!drag) return;
     const {separator, pointerId} = drag;
     drag = null;
     if (separator.hasPointerCapture(pointerId)) separator.releasePointerCapture(pointerId);
-    document.body.classList.remove("resizing");
+    document.body.classList.remove("resizing", "resizing-height");
     persist();
   }
   for (const button of document.querySelectorAll("[data-toggle-pane]")) button.addEventListener("click", () => {
@@ -118,9 +164,44 @@ export function initializeLayout(onReveal = () => {}) {
     });
     separator.addEventListener("dblclick", () => { resize(defaultLayout()[key]); persist(); });
   }
+  function resizeHeight(value) {
+    state.height = clamp(value, heightBounds[0], Number(heightSeparator.getAttribute("aria-valuemax")));
+    applyHeight();
+  }
+  function fitHeight() {
+    endDrag();
+    state.height = null;
+    persist();
+    applyHeight();
+  }
+  heightSeparator.addEventListener("pointerdown", event => {
+    if (drag || mobile.matches || event.button !== 0) return;
+    event.preventDefault();
+    heightSeparator.focus();
+    drag = {separator: heightSeparator, pointerId: event.pointerId, start: event.clientY,
+      height: workspace.getBoundingClientRect().height};
+    heightSeparator.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-height");
+  });
+  heightSeparator.addEventListener("pointermove", event => {
+    if (drag?.separator === heightSeparator && drag.pointerId === event.pointerId)
+      resizeHeight(drag.height + event.clientY - drag.start);
+  });
+  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) heightSeparator.addEventListener(name, endDrag);
+  heightSeparator.addEventListener("keydown", event => {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const height = workspace.getBoundingClientRect().height;
+    resizeHeight(event.key === "Home" ? heightBounds[0] : event.key === "End" ? heightBounds[1]
+      : height + (event.key === "ArrowUp" ? -1 : 1) * (event.shiftKey ? 64 : 16));
+    persist();
+  });
+  heightSeparator.addEventListener("dblclick", fitHeight);
+  $("fit-height").addEventListener("click", fitHeight);
   $("reset-layout").addEventListener("click", () => {
     endDrag();
     state = defaultLayout();
+    composition.open = true;
     mobileOpen.config = mobileOpen.workers = false;
     persist();
     apply();
@@ -129,5 +210,16 @@ export function initializeLayout(onReveal = () => {}) {
   const responsive = () => { endDrag(); apply(); };
   mobile.addEventListener("change", responsive);
   window.addEventListener("resize", responsive);
+  let pendingHeight = 0;
+  const heightObserver = new ResizeObserver(() => {
+    if (!pendingHeight) pendingHeight = requestAnimationFrame(() => { pendingHeight = 0; applyHeight(); });
+  });
+  for (const selector of [".masthead", "#workspace-toolbar", "#status", "#workspace-resizebar", "#playback-bar",
+    "#assignment-details > summary", "footer > span", "footer > details > summary"])
+    heightObserver.observe(document.querySelector(selector));
+  let previousWidth = workspace.clientWidth;
+  new ResizeObserver(() => {
+    if (workspace.clientWidth !== previousWidth) { previousWidth = workspace.clientWidth; apply(); }
+  }).observe(workspace);
   apply();
 }

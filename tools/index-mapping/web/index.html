@@ -83,7 +83,10 @@
         </div>
         <div id="data" tabindex="0" role="region" aria-label="Scrollable logical index domain"></div>
         <div class="legend"><span class="mobile-hint">↔ Swipe inside the grid to explore · tap an index to trace it</span><span><i class="swatch current"></i>Current · thread color</span><span><i class="swatch past"></i>Past · ownership retained</span><span><i class="swatch selected"></i>Selected worker</span><span>× Multiple visits / owners</span><span><i class="swatch empty"></i>Future / unassigned</span></div>
-        <div id="composition" class="composition" role="group" aria-label="Index composition"></div>
+        <details id="composition" class="composition" open>
+          <summary>Index composition <span id="composition-summary" class="composition-summary"></span></summary>
+          <div id="composition-content" class="composition-content"></div>
+        </details>
         <div class="iteration-bar">
           <label><input id="all-iterations" type="checkbox" checked> Outline all assignments of selected worker</label>
           <label>Outer<input id="outer-iteration" type="number" value="0" min="0" max="0"></label>
@@ -91,20 +94,29 @@
         </div>
       </section>
     </div>
+    <div id="workspace-resizebar" class="workspace-resizebar">
+      <div id="height-splitter" class="height-splitter" role="separator" tabindex="0" aria-label="Resize workspace height" aria-orientation="horizontal" aria-controls="workspace" aria-valuemin="480" aria-valuemax="10000" aria-valuenow="800" title="Drag or use Up/Down to resize; double-click for automatic fit"></div>
+      <button id="fit-height" type="button" disabled title="Fit workspace to the remaining window height">Fit height</button>
+    </div>
     <section id="timeline-panel" class="panel timeline-panel" aria-labelledby="timeline-title">
-      <div class="panel-heading"><h2 id="timeline-title">Logical iteration timeline</h2><button id="expand-timeline" type="button" aria-expanded="false" aria-controls="timeline">Expand timeline</button></div>
-      <p class="timeline-note">Columns align the same loop iteration across workers — not hardware lockstep, elapsed time, or a synchronization barrier.</p>
-      <div class="timeline-controls">
-        <button id="step-back" type="button" aria-label="Previous logical step">◀</button>
+      <div id="playback-bar" class="playback-bar" role="group" aria-label="Logical iteration playback">
         <button id="play" type="button" aria-pressed="false">Play</button>
-        <button id="step-forward" type="button" aria-label="Next logical step">▶</button>
-        <label class="scrubber">Step <input id="timeline-step" type="range" min="0" max="0" value="0" aria-label="Logical iteration step"><output id="step-label" for="timeline-step"></output></label>
-        <label><input id="keep-history" type="checkbox" checked> Keep history</label>
-        <label>Show <select id="timeline-scope"><option value="all">All blocks</option><option value="block">Selected block</option></select></label>
+        <label class="scrubber">Logical step <input id="timeline-step" type="range" min="0" max="0" value="0" aria-label="Logical iteration step"><output id="step-label" for="timeline-step"></output></label>
+        <button id="expand-timeline" type="button" aria-expanded="false" aria-controls="timeline-details">Expand timeline</button>
       </div>
-      <p id="timeline-summary" class="hint" aria-live="polite"></p>
-      <div id="timeline" class="timeline-scroll" tabindex="0" role="region" aria-label="Worker assignments by logical iteration"></div>
-      <details class="timeline-key"><summary>Legend &amp; interpretation</summary><p class="timeline-note">Vivid = current · muted = past · outline = future · — = no assignment · crossed out = rejected by guard. Block headers share a color family with their threads. Click a column to step, or an event to trace its index.</p></details>
+      <div id="timeline-details" hidden>
+        <div class="panel-heading"><h2 id="timeline-title">Logical iteration timeline</h2></div>
+        <p class="timeline-note">Columns align the same loop iteration across workers — not hardware lockstep, elapsed time, or a synchronization barrier.</p>
+        <div class="timeline-controls">
+          <button id="step-back" type="button" aria-label="Previous logical step">◀</button>
+          <button id="step-forward" type="button" aria-label="Next logical step">▶</button>
+          <label><input id="keep-history" type="checkbox" checked> Keep history</label>
+          <label>Show <select id="timeline-scope"><option value="all">All blocks</option><option value="block">Selected block</option></select></label>
+        </div>
+        <p id="timeline-summary" class="hint" aria-live="polite"></p>
+        <div id="timeline" class="timeline-scroll" tabindex="0" role="region" aria-label="Worker assignments by logical iteration"></div>
+        <details class="timeline-key"><summary>Legend &amp; interpretation</summary><p class="timeline-note">Vivid = current · muted = past · outline = future · — = no assignment · crossed out = rejected by guard. Block headers share a color family with their threads. Click a column to step, or an event to trace its index.</p></details>
+      </div>
     </section>
     <details id="assignment-details" class="panel inspector">
       <summary>Assignment details <span>Calculation · C++ snippets · assignments · diagnostics</span></summary>

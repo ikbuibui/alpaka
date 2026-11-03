@@ -19,6 +19,11 @@ async function ready(page, hash = "") {
   expect(errors).toEqual([]);
 }
 
+async function expandTimeline(page) {
+  if (await page.locator("#expand-timeline").getAttribute("aria-expanded") === "false")
+    await page.locator("#expand-timeline").click();
+}
+
 async function assertDrawing(page, config, selectedWorker = 0, iteration = null) {
   const trace = reference(config);
   expect(trace.error).toBeUndefined();
@@ -163,6 +168,7 @@ test("composition stays on the map and shows traced 1D and 2D summands", async (
   await expect(page.locator(".sum-equation")).toHaveAttribute("data-local", "1,2");
   await expect(page.locator(".local-inset svg")).toHaveAttribute("aria-label", "Local index (1, 2) in tile (2, 4)");
   await expect(page.locator('[data-worker="14"]')).toBeInViewport();
+  await expandTimeline(page);
   await page.locator("#timeline").scrollIntoViewIfNeeded();
   await expect(page.locator('[data-timeline-worker="14"]')).toBeInViewport();
   await expect(page.locator('#timeline [aria-current="step"]')).toBeInViewport();
@@ -201,6 +207,7 @@ for (const [name, config] of [
   ["idle direct workers", {...defaults(1), hierarchy: 0, worker: 0, end: [2], layout: 1}],
 ]) test(`timeline events match native C++: ${name}`, async ({page}) => {
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expandTimeline(page);
   const trace = reference(config);
   const keys = [...new Set(trace.workers.flatMap(w => w.assignments.map(a => `${a.outerIteration}:${a.innerIteration}`)))];
   keys.sort((a, b) => {
@@ -225,6 +232,7 @@ for (const [name, config] of [
 test("stepping paints every worker's cohort and retains reversible, fixed-color history", async ({page}) => {
   const config = {...defaults(1), end: [32], layout: 1, outerLayout: 1};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expandTimeline(page);
   const cell = index => page.locator(`[data-cell="${index}"]`);
   for (const index of [0, 1, 2, 3, 8, 9, 10, 11]) await expect(cell(index)).toHaveAttribute("data-phase", "current");
   await expect(cell(14)).toHaveAttribute("data-phase", "future");
@@ -254,6 +262,7 @@ test("stepping paints every worker's cohort and retains reversible, fixed-color 
 test("guarded events remain inspectable but do not color processed cells", async ({page}) => {
   await ready(page);
   await page.locator("#preset").selectOption("uneven");
+  await expandTimeline(page);
   const guarded = page.locator('[data-in-bounds="false"]').first();
   const worker = await guarded.getAttribute("data-event-worker");
   await guarded.click();
@@ -285,6 +294,7 @@ test("repeated assignments retain multiple visits and cycle through their owners
 
 test("block filtering and collapsing never change the shared iteration cursor", async ({page}) => {
   await ready(page);
+  await expandTimeline(page);
   await expect(page.locator("[data-timeline-worker]")).toHaveCount(16);
   await page.locator('[data-collapse-block="0,0"]').click();
   await expect(page.locator('[data-collapse-block="0,0"]')).toHaveAttribute("aria-expanded", "false");
@@ -320,6 +330,7 @@ test("playback pauses, stops at the end, and respects reduced motion", async ({p
   await page.emulateMedia({reducedMotion: "reduce"});
   await expect(page.locator("#play")).toBeDisabled();
   await expect(page.locator("#play")).toHaveText("Play");
+  await expandTimeline(page);
   await page.locator("#step-forward").click();
   await expect(page.locator("#step-label")).toHaveText("2 / 4");
 });
@@ -327,6 +338,7 @@ test("playback pauses, stops at the end, and respects reduced motion", async ({p
 test("empty ranges and invalid configurations clear timeline state safely", async ({page}) => {
   const config = {...defaults(1), begin: [16]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expandTimeline(page);
   await expect(page.locator("#timeline")).toContainText("All workers are idle");
   await expect(page.locator("#step-label")).toHaveText("0 / 0");
   await expect(page.locator("#play")).toBeDisabled();
@@ -334,12 +346,14 @@ test("empty ranges and invalid configurations clear timeline state safely", asyn
   await page.locator("#api").selectOption("0");
   await expect(page.locator("#status")).toHaveClass(/error/);
   await expect(page.locator("#timeline")).toBeEmpty();
-  await expect(page.locator("#composition")).toBeEmpty();
+  await expect(page.locator("#composition")).toBeHidden();
+  await expect(page.locator("#composition-content")).toBeEmpty();
 });
 
 test("large timelines are windowed and hierarchical layouts remain narrow-screen safe", async ({page}) => {
   const config = {...defaults(1), blocks: [1], threads: [1], tile: [1], end: [64]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expandTimeline(page);
   await expect(page.locator("[data-event-worker]")).toHaveCount(24);
   await page.locator("#timeline-step").fill("63");
   await expect(page.locator("#step-label")).toHaveText("64 / 64");
@@ -380,6 +394,7 @@ test("wide desktops use the available width and keep the main view above details
     });
   });
   expect(fits).toBe(true);
+  await expandTimeline(page);
   expect((await page.locator('.timeline-table th[scope="row"]').first().boundingBox()).width).toBeLessThanOrEqual(180);
 });
 
@@ -469,18 +484,27 @@ test("disabled or corrupt local storage cannot prevent the explorer from loading
   await assertDrawing(page, defaults());
 });
 
-test("compact timeline expands independently of mapping and keeps details secondary", async ({page}) => {
+test("playback-only timeline expands without shrinking the workspace or changing details", async ({page}) => {
   await ready(page);
-  expect((await page.locator("#timeline").boundingBox()).height).toBeLessThanOrEqual(222);
-  await page.locator("#step-forward").click();
-  await page.locator("#expand-timeline").click();
-  await expect(page.locator("#expand-timeline")).toHaveAttribute("aria-expanded", "true");
+  const height = (await page.locator("#workspace").boundingBox()).height;
+  await expect(page.locator("#timeline-details")).toBeHidden();
+  await expect(page.locator("[data-event-worker]")).toHaveCount(0);
+  expect((await page.locator("#timeline-panel").boundingBox()).height).toBeLessThan(65);
+  await expect(page.locator("#step-back")).toBeHidden();
+  await expect(page.locator("#keep-history")).toBeHidden();
+  await page.locator("#timeline-step").fill("1");
+  await expandTimeline(page);
+  await expect(page.locator("#timeline")).toBeVisible();
   expect((await page.locator("#timeline").boundingBox()).height).toBeGreaterThan(400);
   await expect(page.locator("#step-label")).toHaveText("2 / 2");
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(height);
+  await expect(page.locator("#assignment-details")).not.toHaveAttribute("open", "");
   await page.locator("#expand-timeline").click();
-  expect((await page.locator("#timeline").boundingBox()).height).toBeLessThanOrEqual(222);
+  await expect(page.locator("#timeline-details")).toBeHidden();
+  expect((await page.locator("#timeline-panel").boundingBox()).height).toBeLessThan(65);
   await page.locator("#assignment-details > summary").click();
   await expect(page.locator("#calculation")).toBeVisible();
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(height);
 });
 
 test("mobile touch supports cell selection, configuration, workers, and internal scrolling", async ({browser}) => {
@@ -532,6 +556,147 @@ for (const width of [320, 390, 768, 900]) test(`map-first layout fits a ${width}
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test("automatic height fills the desktop viewport and grows beyond the old cap", async ({page}) => {
+  await ready(page);
+  await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "fit");
+  await expect(page.locator("#fit-height")).toBeDisabled();
+  expect((await page.locator("#workspace").boundingBox()).height).toBeGreaterThan(750);
+  await expect(page.locator("#playback-bar")).toBeInViewport();
+  await expect(page.locator("#assignment-details > summary")).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+  await page.setViewportSize({width: 1440, height: 2160});
+  await expect.poll(async () => (await page.locator("#workspace").boundingBox()).height).toBeGreaterThan(1800);
+  const heights = await Promise.all(["config-pane", "worker-pane", "domain-pane"].map(async id =>
+    (await page.locator(`#${id}`).boundingBox()).height));
+  expect(new Set(heights).size).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+});
+
+test("height fitting responds to wrapped launch assumptions rather than fixed offsets", async ({page}) => {
+  await page.setViewportSize({width: 1040, height: 1000});
+  await ready(page);
+  await page.locator("#spec").selectOption("1");
+  await expect(page.locator("#status")).toContainText("NOT resolved");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+  await expect(page.locator("#assignment-details > summary")).toBeInViewport();
+});
+
+test("workspace height resizes by keyboard, persists, and returns to automatic fit", async ({page}) => {
+  await ready(page);
+  const height = (await page.locator("#workspace").boundingBox()).height;
+  await page.locator("#height-splitter").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "manual");
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(height + 80);
+  await expect(page.locator("#fit-height")).toBeEnabled();
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(height + 80);
+  await page.setViewportSize({width: 1440, height: 1400});
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(height + 80);
+  await page.locator("#fit-height").click();
+  await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "fit");
+  await expect.poll(async () => (await page.locator("#workspace").boundingBox()).height).toBeGreaterThan(height + 250);
+  await page.locator("#height-splitter").focus();
+  await page.keyboard.press("Home");
+  await expect(page.locator("#height-splitter")).toHaveAttribute("aria-valuenow", "480");
+  await page.locator("#reset-layout").click();
+  await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "fit");
+});
+
+test("dragging grows all three panes together and double-click restores fit", async ({page}) => {
+  await ready(page);
+  const before = (await page.locator("#workspace").boundingBox()).height;
+  const handle = await page.locator("#height-splitter").boundingBox();
+  const x = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + 100, {steps: 5});
+  await page.mouse.up();
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(before + 100);
+  for (const id of ["config-pane", "worker-pane", "domain-pane"])
+    expect((await page.locator(`#${id}`).boundingBox()).height).toBe(before + 100);
+  await expect(page.locator("body")).not.toHaveClass(/resizing-height/);
+  await page.locator("#height-splitter").dblclick();
+  await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "fit");
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(before);
+});
+
+test("composition collapses independently, retains overlays, and remembers the compact equation", async ({page}) => {
+  await ready(page);
+  await page.locator('[data-cell="3,6"]').click();
+  await page.mouse.move(0, 0);
+  const canvasHeight = (await page.locator("#data").boundingBox()).height;
+  const workspaceHeight = (await page.locator("#workspace").boundingBox()).height;
+  await page.locator("#composition > summary").click();
+  await expect(page.locator("#composition")).not.toHaveAttribute("open", "");
+  await expect(page.locator("#composition-summary")).toHaveText("(3, 6) = (2, 4) + (1, 2)");
+  await expect(page.locator(".sum-equation")).toBeHidden();
+  await expect(page.locator(".local-inset")).toBeHidden();
+  await expect(page.locator(".composition-overlay path")).toHaveCount(1);
+  expect((await page.locator("#data").boundingBox()).height).toBeGreaterThan(canvasHeight + 80);
+  expect((await page.locator("#workspace").boundingBox()).height).toBe(workspaceHeight);
+  await page.locator("#timeline-step").fill("0");
+  await expect(page.locator("#composition-summary")).toHaveText("(2, 6) = (2, 4) + (0, 2)");
+  await page.locator("#show-composition").uncheck();
+  await expect(page.locator("#composition")).toBeHidden();
+  await page.locator("#show-composition").check();
+  await expect(page.locator("#composition")).not.toHaveAttribute("open", "");
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await expect(page.locator("#composition")).not.toHaveAttribute("open", "");
+  await expect(page.locator("#composition-summary")).toContainText("(0, 0) = (0, 0) + (0, 0)");
+  await page.locator("#hierarchy").selectOption("0");
+  await expect(page.locator("#composition")).toBeHidden();
+  await page.locator("#hierarchy").selectOption("1");
+  await expect(page.locator("#composition")).not.toHaveAttribute("open", "");
+  await page.locator("#reset-layout").click();
+  await expect(page.locator("#composition")).toHaveAttribute("open", "");
+});
+
+test("closed timeline rebuilds current events on expansion after playback or mapping changes", async ({page}) => {
+  await ready(page);
+  await page.locator("#timeline-step").fill("1");
+  await expect(page.locator("#timeline")).toBeEmpty();
+  await expandTimeline(page);
+  await expect(page.locator('.timeline-event.current')).toHaveCount(16);
+  await page.locator("#expand-timeline").click();
+  await page.locator("#preset").selectOption("uneven");
+  await page.locator("#timeline-step").fill("1");
+  await expandTimeline(page);
+  await expect(page.locator('.timeline-event.current')).toHaveCount(16);
+  await expect(page.locator('.timeline-event.current.guarded')).not.toHaveCount(0);
+  await expect(page.locator("#step-label")).toHaveText("2 / 2");
+});
+
+test("mobile ignores desktop height and supports collapsing composition by touch", async ({browser}) => {
+  const context = await browser.newContext({baseURL: "http://127.0.0.1:8765", viewport: {width: 390, height: 844},
+    isMobile: true, hasTouch: true});
+  try {
+    await context.addInitScript(() => localStorage.setItem("alpaka-index-lab.layout.v1",
+      JSON.stringify({height: 1600, compositionCollapsed: true})));
+    const page = await context.newPage();
+    await ready(page);
+    await expect(page.locator("#workspace-resizebar")).toBeHidden();
+    await expect(page.locator("#timeline-details")).toBeHidden();
+    await expect(page.locator("#composition")).not.toHaveAttribute("open", "");
+    expect((await page.locator("#data").boundingBox()).height).toBeLessThan(501);
+    await page.locator("#composition > summary").tap();
+    await expect(page.locator(".sum-equation")).toBeVisible();
+    await page.locator("#composition > summary").tap();
+    await page.locator("#expand-timeline").tap();
+    await expect(page.locator("#timeline")).toBeVisible();
+    await page.locator("#expand-timeline").tap();
+    await expect(page.locator("#timeline-details")).toBeHidden();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.setViewportSize({width: 1440, height: 1100});
+    await expect(page.locator("#workspace-resizebar")).toBeVisible();
+    await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "manual");
+    expect((await page.locator("#workspace").boundingBox()).height).toBe(1600);
+  } finally { await context.close(); }
+});
+
 test("capture wide and mobile workspaces", async ({browser}, testInfo) => {
   for (const [name, viewport, touch] of [
     ["wide", {width: 2560, height: 1080}, false], ["mobile", {width: 390, height: 844}, true],
@@ -551,4 +716,6 @@ test("capture the standalone prototype", async ({page}, testInfo) => {
   await page.locator('[data-cell="3,6"]').click();
   await page.mouse.move(0, 0);
   await page.screenshot({path: testInfo.outputPath("composition-history.png"), fullPage: true});
+  await page.locator("#composition > summary").click();
+  await page.screenshot({path: testInfo.outputPath("collapsed-composition.png"), fullPage: true});
 });

@@ -96,9 +96,16 @@ stretching coordinates into wide rectangles.
   width. The first two panes scroll independently. Drag their separators to resize,
   or focus a separator and use Left/Right (Shift for larger steps), Home, or End.
   Double-click resets that pane's width. Constraints reserve at least 320px for data.
+- The desktop workspace automatically fills the remaining window height, reserving
+  only the playback strip, collapsed assignment-details header, and footer. It has
+  no fixed 850px cap. Drag the horizontal separator below the panes to adjust their
+  shared height, or use Up/Down (Shift for larger steps), Home, or End. Manual heights
+  are saved locally. **Fit height** or double-clicking the separator restores automatic
+  fitting. A 480px minimum keeps short windows usable; larger manual heights scroll
+  the page. Expanded timeline/details content never shrinks the main workspace.
 - **Configure / Workers** toggle the corresponding pane. Collapsing either gives its
   space to the data domain; the selected worker's identity stays visible in the
-  domain header. Widths and desktop visibility are saved locally when storage is
+  domain header. Widths, height mode, and desktop visibility are saved locally when storage is
   available. **Reset layout** restores defaults without changing the mapping.
   Shrinking the viewport does not overwrite preferred desktop widths.
 - **Phones and tablets, up to 900px:** the grid is shown first, with configuration
@@ -107,10 +114,14 @@ stretching coordinates into wide rectangles.
   and swipe inside the grid for large domains. Hover previews are only enabled on
   hover-capable devices. Wide grids and timelines scroll internally, not the page
   horizontally. Selecting an assignment pans its data cell into view without moving
-  the whole page.
+  the whole page. Desktop height preferences and the horizontal resize handle are
+  not applied on mobile; the page retains natural vertical scrolling.
 - The toolbar keeps examples, dimensions, and launch assumptions visible. Detailed
-  settings remain in the configuration pane. The timeline is compact by default;
-  **Expand timeline** reveals more worker rows without changing the logical cursor.
+  settings remain in the configuration pane. The timeline starts as a playback-only
+  strip: **Play/Pause**, the logical-step slider/counter, and **Expand timeline**.
+  Expanding reveals the worker rows, previous/next buttons, history/filter controls,
+  and interpretation notes below the strip; collapsing hides them without changing
+  the logical cursor or canvas height. Timeline rows are rendered only when expanded.
   Calculation, snippets, assignment tables, and diagnostics live in the initially
   collapsed **Assignment details** section. Build provenance is also collapsible.
 
@@ -129,6 +140,13 @@ Choose **Labels → Origin + local** to show summands in cells (two lines in 2D)
 Hover a worker or data cell to preview; click to pin the assignment. Composition
 and sum labels are disabled for direct mappings, which have no outer tile loop.
 
+The **Index composition** disclosure independently collapses the detailed equation,
+explanation, and local inset to a compact equation row. Its locally remembered state
+survives selection, playback, and configuration changes. Collapsing frees canvas
+height while leaving the tile-origin marker and offset arrow enabled; the separate
+**Composition** checkbox still switches the whole composition visualization off.
+**Reset layout** restores expanded composition and automatic workspace height.
+
 **The logical iteration timeline is not a device scheduler.** Each column aligns
 one `(outer iteration, inner iteration)` pair across all workers, ordered outer
 first, then inner. Direct mappings have only inner iterations. Blocks and threads
@@ -146,7 +164,7 @@ a worker's next outer iteration is never packed into an exhausted inner-loop gap
   logical step. Click an event to select its worker, index, and composition.
   Worker selection never filters other workers' current assignments out of the map.
   **All assignments of selected worker** controls only that worker's outline overlay.
-- All blocks are shown initially, with collapsible groups and an optional
+- When the timeline is expanded, all blocks are shown initially, with collapsible groups and an optional
   **Selected block** timeline filter. The logical cursor remains global when filtered.
   Timelines show at most 24 columns around the cursor; the slider reaches every step.
 - Guard-rejected events are crossed out and remain selectable, but never color
@@ -298,7 +316,8 @@ For an installed Chromium, omit the install command and use
   native C++ traces; test composition, hover previews, shared selection, reversible
   history, playback, reduced motion, filtering, range editing, guards, errors,
   shared configurations, pane resizing/persistence, storage failures, full-width
-  desktops, 320–900px layouts, and mobile touch selection. Screenshots are saved under
+  desktops, vertical fit/drag sizing, composition disclosure persistence, 320–900px
+  layouts, and mobile touch selection. Screenshots are saved under
   `build/browser-results/`.
 - Source fingerprints cover the alpaka headers, adapter, and build script; tests
   reject stale engines and stale copied UI assets. Every response carries the
@@ -327,7 +346,7 @@ Rebuild after editing sources; do not reuse a WASM module from another revision.
 - `web/`: dependency-free controls, SVG rendering, and trace inspection.
 - `test.mjs`: conformance and independent semantic checks.
 - `visualization.test.mjs`: dependency-free tests for timeline and color/history helpers.
-- `layout.test.mjs`: saved-layout validation and responsive width-constraint tests.
+- `layout.test.mjs`: saved-layout migration/validation, width constraints, and automatic-height tests.
 - `browser.spec.mjs`: rendered-output checks using Playwright.
 
 The generated `build/site/` is an ordinary static site. We can review and iterate

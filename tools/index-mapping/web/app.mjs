@@ -202,12 +202,15 @@ function drawComposition() {
   const container = $("composition");
   container.hidden = !config.hierarchy || !$("show-composition").checked;
   if (container.hidden) return;
+  const content = $("composition-content");
   const focus = focused();
   if (!focus) {
-    container.innerHTML = '<p class="hint">No assignment for this worker at the current step. Select another worker or timeline event.</p>';
+    $("composition-summary").textContent = "No assignment at this step";
+    content.innerHTML = '<p class="hint">No assignment for this worker at the current step. Select another worker or timeline event.</p>';
     return;
   }
   const {worker, assignment: a} = focus;
+  $("composition-summary").textContent = `${tuple(a.index)} = ${tuple(a.origin)} + ${tuple(a.local)}${a.inBounds ? "" : " · rejected by guard"}`;
   const color = palette.get(worker.id);
   let inset = "";
   if (config.dim === 2) {
@@ -221,7 +224,7 @@ function drawComposition() {
       <text x="-4" y="-5">0</text><text x="${w / 2}" y="-5" text-anchor="middle">column →</text>
       </svg><span>↓ ${a.local[0]} rows · → ${a.local[1]} columns</span></div>`;
   }
-  container.innerHTML = `<div class="composition-body"><p class="hint">${preview ? "Preview" : "Selected"} · Block ${tuple(worker.block)} / Thread ${tuple(worker.thread)} · outer ${a.outerIteration}, inner ${a.innerIteration}</p>
+  content.innerHTML = `<div class="composition-body"><p class="hint">${preview ? "Preview" : "Selected"} · Block ${tuple(worker.block)} / Thread ${tuple(worker.thread)} · outer ${a.outerIteration}, inner ${a.innerIteration}</p>
     <div class="sum-equation" data-origin="${a.origin.join(",")}" data-local="${a.local.join(",")}" data-global="${a.index.join(",")}">
       <div><small>Global index</small><strong>${tuple(a.index)}</strong></div><b>=</b>
       <div style="--term-color:${color.block}"><small>Block-level tile origin</small><strong>${tuple(a.origin)}</strong></div><b>+</b>
@@ -248,6 +251,7 @@ function updateTimelineControls() {
 
 function drawTimeline() {
   updateTimelineControls();
+  if ($("timeline-details").hidden) return;
   const container = $("timeline"), position = cursor();
   const {start, end} = timelineWindow(timeline.steps.length, position);
   const steps = timeline.steps.slice(start, end);
@@ -408,8 +412,9 @@ function recompute() {
   } catch (error) {
     trace = null;
     timeline = null;
-    for (const id of ["workers", "data", "composition", "timeline", "calculation", "table", "diagnostics", "worker-selection"]) $(id).replaceChildren();
+    for (const id of ["workers", "data", "composition-content", "composition-summary", "timeline", "calculation", "table", "diagnostics", "worker-selection"]) $(id).replaceChildren();
     updateTimelineControls();
+    $("composition").hidden = true;
     $("code").textContent = "";
     status(error.message, true);
   }
@@ -473,8 +478,9 @@ $("keep-history").addEventListener("change", render);
 $("timeline-scope").addEventListener("change", render);
 $("expand-timeline").addEventListener("click", () => {
   const expanded = $("timeline-panel").classList.toggle("expanded");
+  $("timeline-details").hidden = !expanded;
   $("expand-timeline").setAttribute("aria-expanded", String(expanded));
-  $("expand-timeline").textContent = expanded ? "Compact timeline" : "Expand timeline";
+  $("expand-timeline").textContent = expanded ? "Collapse timeline" : "Expand timeline";
   delete $("timeline").dataset.selectedWorker;
   if (trace) drawTimeline();
 });
