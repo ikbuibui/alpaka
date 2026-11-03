@@ -61,6 +61,38 @@ test("palette shares block colors, differentiates threads, and has fixed history
   assert(["#000", "#fff"].includes(palette.get(0).ink));
 });
 
+test("categorical block families stay fixed for ten blocks and deliberately cycle", () => {
+  const trace = {workers: Array.from({length: 25}, (_, i) => worker(i, i, []))};
+  const palette = workerPalette(trace);
+  const colors = [...palette.values()].map(p => p.block);
+  assert.deepEqual(colors.slice(0, 10), ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]);
+  assert.equal(new Set(colors.slice(0, 10)).size, 10);
+  for (let i = 10; i < colors.length; ++i) assert.deepEqual(palette.get(i), palette.get(i % 10));
+  assert.deepEqual([...workerPalette({workers: trace.workers.slice(0, 6)}).values()],
+    [...palette.values()].slice(0, 6)); // Adding blocks never recolors existing families.
+});
+
+test("all ten families retain the thread-lightness ramp and contrasting label ink", () => {
+  const trace = {workers: Array.from({length: 40}, (_, id) => worker(id, Math.floor(id / 4), []))};
+  const palette = workerPalette(trace);
+  for (const [id, color] of palette) {
+    const [, h, s, l] = color.current.match(/^hsl\((\S+) (\S+)% (\S+)%\)$/).map(Number);
+    assert.equal(l, 42 + (id % 4) * 7);
+    assert(color.past.endsWith(` ${79 + (id % 4) * 3}%)`));
+    // Independently check the selected black/white ink against WCAG relative luminance.
+    const a = s / 100 * Math.min(l / 100, 1 - l / 100);
+    const rgb = [0, 8, 4].map(n => {
+      const k = (n + h / 30) % 12;
+      const v = l / 100 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4;
+    });
+    const luminance = rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+    const contrast = color.ink === "#000" ? (luminance + .05) / .05 : 1.05 / (luminance + .05);
+    assert(contrast >= 4.5, `${id}: ${color.current} with ${color.ink}`);
+  }
+});
+
 test("windowing bounds the DOM while keeping every cursor accessible", () => {
   assert.deepEqual(timelineWindow(0, 0), {start: 0, end: 0});
   assert.deepEqual(timelineWindow(4, 2), {start: 0, end: 4});

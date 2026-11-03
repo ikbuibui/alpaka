@@ -54,6 +54,73 @@ test("SVG ownership and worker selection agree with native C++", async ({page}) 
   await assertDrawing(page, config, 7, {outer: 0, inner: 1});
 });
 
+test("twelve blocks use ten stable color families and repeated colors stay selectable", async ({page}) => {
+  const config = {...defaults(), blocks: [3, 4], end: [12, 16]};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  const colors = await page.locator(".block-group").evaluateAll(groups =>
+    groups.map(g => g.style.getPropertyValue("--block-color")));
+  expect(new Set(colors.slice(0, 10)).size).toBe(10);
+  expect(colors[10]).toBe(colors[0]);
+  expect(colors[11]).toBe(colors[1]);
+  await page.locator('[data-worker="40"]').click();
+  await assertDrawing(page, config, 40);
+  await expect(page.locator('[data-worker="40"] .selected-badge')).toHaveText("Selected");
+  await expect(page.locator('[data-worker="0"] .selected-badge')).toHaveCount(0);
+  await expect(page.locator("#worker-selection")).toContainText("Selected: T40");
+});
+
+test("selected-thread rings span past, current and future without changing temporal fills", async ({page}) => {
+  const config = {...defaults(), blocks: [3, 4], end: [12, 16]};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expandTimeline(page);
+  await page.locator("#step-forward").click();
+  await page.mouse.move(0, 0);
+  await assertDrawing(page, config);
+  const selected = page.locator('[data-highlighted="true"]');
+  expect(new Set(await selected.evaluateAll(cells => cells.map(c => c.dataset.phase))))
+    .toEqual(new Set(["past", "current", "future"]));
+  await expect(selected.locator(".selection-ring")).toHaveCount(await selected.count());
+  await expect(selected.locator(".selection-halo")).toHaveCount(await selected.count());
+  await expect(page.locator('[data-highlighted="false"] .selection-ring')).toHaveCount(0);
+  await expect(selected.locator(".selection-ring").first()).toHaveCSS("stroke", "rgb(23, 33, 44)");
+  await expect(selected.locator(".selection-ring").first()).toHaveCSS("stroke-width", "3px");
+  await expect(selected.locator(".selection-halo").first()).toHaveCSS("stroke", "rgb(255, 255, 255)");
+  await expect(selected.locator(".selection-halo").first()).toHaveCSS("stroke-width", "7px");
+  const fills = () => page.locator("[data-cell]").evaluateAll(cells => cells.map(c =>
+    [c.dataset.cell, c.dataset.phase, c.querySelector(".cell-fill").getAttribute("fill")]));
+  const before = await fills();
+  const pinned = await page.locator(".assignment-marker").evaluate(marker => marker.parentElement.dataset.cell);
+  await page.locator('[data-cell="0,1"]').hover();
+  await expect(page.locator('[data-cell="0,1"] .preview-ring')).toHaveCount(1);
+  await expect(page.locator('[data-cell="0,1"] .preview-ring')).toHaveCSS("stroke-dasharray", "3px, 2px");
+  await expect(page.locator(`[data-cell="${pinned}"] .assignment-marker`)).toHaveCount(1);
+  await assertDrawing(page, config);
+  expect(await fills()).toEqual(before);
+  await page.locator('[data-worker="7"]').click();
+  await assertDrawing(page, config, 7);
+  expect(await fills()).toEqual(before);
+  await expect(page.locator('.selected-row [data-select-worker="7"]')).toContainText("Selected");
+  await expect(page.locator('.selected-row [data-select-worker="7"]')).toHaveCSS("outline-style", "solid");
+  await expect(page.locator('[data-worker="7"]')).toHaveCSS("outline-width", "2px");
+  await page.locator("#keep-history").uncheck();
+  await assertDrawing(page, config, 7); // Hiding history must not erase ownership rings.
+  await expect(page.locator('[data-highlighted="true"] .selection-ring')).toHaveCount(
+    reference(config).workers[7].assignments.filter(a => a.inBounds).length);
+});
+
+test("idle selected threads retain an explicit identity without inventing a footprint", async ({page}) => {
+  const config = {...defaults(1), hierarchy: 0, worker: 0, end: [2], layout: 1};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  const idle = reference(config).workers.find(w => !w.assignments.length);
+  expect(idle).toBeDefined();
+  await page.locator(`[data-worker="${idle.id}"]`).click();
+  await expect(page.locator("#worker-selection")).toContainText(`Selected: T${idle.id}`);
+  await expect(page.locator("#worker-selection")).toContainText("Idle at this step");
+  await expect(page.locator(".selection-ring")).toHaveCount(0);
+  await expect(page.locator(".assignment-marker")).toHaveCount(0);
+  await expect(page.locator(`[data-worker="${idle.id}"] .selected-badge`)).toBeVisible();
+});
+
 test("selecting a cell traces its owning worker and C++ index", async ({page}) => {
   await ready(page);
   await page.locator('[data-cell="3,6"]').click();

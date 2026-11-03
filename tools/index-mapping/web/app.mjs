@@ -107,7 +107,7 @@ function drawWorkers() {
     }
     html += `<button type="button" data-worker="${worker.id}" aria-pressed="${worker.id === selectedWorker}"
       class="thread ${worker.id === selectedWorker ? "active" : ""}" style="--thread-color:${palette.get(worker.id).current}"
-      title="Worker ${worker.id}: ${worker.assignments.length} assignments">${tuple(worker.thread)}<small>T${worker.id}</small></button>`;
+      title="Worker ${worker.id}: ${worker.assignments.length} assignments">${tuple(worker.thread)}<small>T${worker.id}${worker.id === selectedWorker ? ' · <span class="selected-badge">Selected</span>' : ""}</small></button>`;
   }
   $("workers").innerHTML = html + "</div></section>";
   const button = $("workers").querySelector('[aria-pressed="true"]').getBoundingClientRect();
@@ -134,7 +134,10 @@ function drawData() {
   for (let row = 0; row < rows; ++row) for (let col = 0; col < cols; ++col) {
     const index = config.dim === 2 ? [row, col] : [col], key = index.join(",");
     const entries = owners.get(key) ?? [], unique = [...new Set(entries.map(entry => entry.worker.id))];
-    const active = selected.has(key), isSelected = focus?.assignment.index.join(",") === key;
+    const active = selected.has(key);
+    const isFocused = selectedAssignment?.inBounds && selectedAssignment.index.join(",") === key;
+    const isPreview = preview?.assignment.inBounds && preview.assignment.index.join(",") === key;
+    const bounds = `x="${pad + col * cell + 3}" y="${pad + row * cell + 3}" width="${cell - 6}" height="${cell - 6}" rx="6"`;
     const valid = eligible(config, index);
     const visits = visibleVisits(entries, timeline, step, $("keep-history").checked);
     const current = visits.filter(e => assignmentPhase(e.assignment, timeline, step) === "current");
@@ -152,11 +155,13 @@ function drawData() {
     svg += `<g data-cell="${key}" data-owner-count="${unique.length}" data-highlighted="${active}" data-phase="${phase}" data-visit-count="${visits.length}" style="--cell-ink:${paint.length ? palette.get(paint[0].worker.id).ink : '#000'}" role="button" tabindex="0"
       aria-label="Index ${tuple(index)}, ${unique.length} owners, ${phase} at logical step ${step + 1}${active ? ", assigned to selected worker" : ""}">
       <title>Index ${tuple(index)} · ${entries.length} assignments · workers ${unique.join(", ") || "none"}${labelEntry && config.hierarchy ? ` · ${tuple(labelEntry.assignment.origin)} + ${tuple(labelEntry.assignment.local)}` : ""}</title>
-      <rect x="${pad + col * cell + 3}" y="${pad + row * cell + 3}" width="${cell - 6}" height="${cell - 6}" rx="6"
-        fill="${fill}" stroke="${isSelected ? "#17212c" : active ? "#286a85" : "#d7dce1"}" stroke-width="${isSelected ? 3 : active ? 2 : 1}"/>
+      <rect class="cell-fill" ${bounds} fill="${fill}" stroke="#d7dce1" stroke-width="1"/>
+      ${active ? `<rect class="selection-halo" ${bounds} aria-hidden="true"/><rect class="selection-ring" ${bounds} aria-hidden="true"/>` : ""}
+      ${isPreview ? `<rect class="preview-ring" x="${pad + col * cell + 8}" y="${pad + row * cell + 8}" width="${cell - 16}" height="${cell - 16}" rx="3" aria-hidden="true"/>` : ""}
       ${visits.length > 1 ? visits.slice(-8).map((entry, i, stripes) => `<rect x="${pad + col * cell + 6 + i * (cell - 12) / stripes.length}" y="${pad + row * cell + cell - 10}" width="${(cell - 12) / stripes.length}" height="4" fill="${palette.get(entry.worker.id)[assignmentPhase(entry.assignment, timeline, step)]}"/>`).join("") : ""}
       <text class="${phase === "current" ? "on-color" : ""} ${$("labels").value === "sum" ? "sum-label" : ""}" x="${pad + col * cell + cell / 2}" y="${pad + row * cell + cell / 2 + 4}" text-anchor="middle">${label}</text>
-      ${entries.length > 1 ? `<text class="visit-count ${phase === "current" ? "on-color" : ""}" x="${pad + col * cell + cell - 6}" y="${pad + row * cell + 13}" text-anchor="end">${entries.length}×</text>` : ""}</g>`;
+      ${entries.length > 1 ? `<text class="visit-count ${phase === "current" ? "on-color" : ""}" x="${pad + col * cell + cell - 6}" y="${pad + row * cell + 13}" text-anchor="end">${entries.length}×</text>` : ""}
+      ${isFocused ? `<path class="assignment-marker" d="M${pad + col * cell + cell / 2 - 4},${pad + row * cell + 7} h8 l-4,7 Z" aria-hidden="true"/>` : ""}</g>`;
   }
   if (config.hierarchy) {
     for (let row = config.dim === 2 ? config.begin[0] : 0; row < rows; row += config.dim === 2 ? config.tile[0] : rows)
@@ -286,7 +291,7 @@ function drawTimeline() {
     html += `<tbody><tr class="timeline-block" style="--block-color:${blockColor}"><th colspan="${steps.length + 1}" scope="rowgroup"><button type="button" data-collapse-block="${key}" aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"} Block ${tuple(workersInBlock[0].block)} · ${workersInBlock.length} threads</button></th></tr>`;
     if (!collapsed) for (const worker of workersInBlock) {
       const color = palette.get(worker.id);
-      html += `<tr data-timeline-worker="${worker.id}" class="${worker.id === selectedWorker ? "selected-row" : ""}"><th scope="row"><button type="button" data-select-worker="${worker.id}" style="--thread-color:${color.current}" aria-pressed="${worker.id === selectedWorker}">Thread ${tuple(worker.thread)} <small>T${worker.id}</small></button></th>`;
+      html += `<tr data-timeline-worker="${worker.id}" class="${worker.id === selectedWorker ? "selected-row" : ""}"><th scope="row"><button type="button" data-select-worker="${worker.id}" style="--thread-color:${color.current}" aria-pressed="${worker.id === selectedWorker}">Thread ${tuple(worker.thread)} <small>T${worker.id}${worker.id === selectedWorker ? ' · <span class="selected-badge">Selected</span>' : ""}</small></button></th>`;
       steps.forEach((step, i) => {
         const n = start + i, a = timeline.byWorker.get(worker.id).get(n);
         const phase = n < position ? "past" : n === position ? "current" : "future";
@@ -346,7 +351,7 @@ function inspect() {
     ?? list.find(a => a.outerIteration === outerIteration && a.innerIteration === innerIteration);
   selectedAssignment = assignment ?? null;
   const info = worker.inner;
-  $("worker-selection").textContent = `T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}`;
+  $("worker-selection").textContent = `Selected: T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}${timeline.byWorker.get(worker.id).has(cursor()) ? "" : " · Idle at this step"}`;
   let html = `<p class="selection-label">Worker T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}</p>`;
   if (config.hierarchy) html += `<div class="calculation-step"><span class="level">1</span><div><h3>Block → tile origin</h3>
     <p>Group index ${tuple(worker.outer.workerIndex)} of ${tuple(worker.outer.workerCount)}</p>

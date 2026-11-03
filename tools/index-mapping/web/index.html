@@ -82,7 +82,7 @@
           </div>
         </div>
         <div id="data" tabindex="0" role="region" aria-label="Scrollable logical index domain"></div>
-        <div class="legend"><span class="mobile-hint">↔ Swipe inside the grid to explore · tap an index to trace it</span><span><i class="swatch current"></i>Current · thread color</span><span><i class="swatch past"></i>Past · ownership retained</span><span><i class="swatch selected"></i>Selected worker</span><span>× Multiple visits / owners</span><span><i class="swatch empty"></i>Future / unassigned</span></div>
+        <div class="legend"><span class="mobile-hint">↔ Swipe inside the grid to explore · tap an index to trace it</span><span title="Ten categorical block colors cycle; block/thread labels and selection distinguish repeated colors."><i class="swatch current"></i>Current · thread color</span><span><i class="swatch past"></i>Past · ownership retained</span><span><i class="swatch selected"></i>Selected thread · any step</span><span>× Multiple visits / owners</span><span><i class="swatch empty"></i>Future / unassigned</span></div>
         <details id="composition" class="composition" open>
           <summary>Index composition <span id="composition-summary" class="composition-summary"></span></summary>
           <div id="composition-content" class="composition-content"></div>
@@ -115,7 +115,7 @@
         </div>
         <p id="timeline-summary" class="hint" aria-live="polite"></p>
         <div id="timeline" class="timeline-scroll" tabindex="0" role="region" aria-label="Worker assignments by logical iteration"></div>
-        <details class="timeline-key"><summary>Legend &amp; interpretation</summary><p class="timeline-note">Vivid = current · muted = past · outline = future · — = no assignment · crossed out = rejected by guard. Block headers share a color family with their threads. Click a column to step, or an event to trace its index.</p></details>
+        <details class="timeline-key"><summary>Legend &amp; interpretation</summary><p class="timeline-note">Vivid = current · muted = past · unfilled = future · dark row borders = selected thread · event ring = focused assignment · — = no assignment · crossed out = rejected by guard. Ten block color families cycle; use labels and selection to distinguish them. Click a column to step, or an event to trace its index.</p></details>
       </div>
     </section>
     <details id="assignment-details" class="panel inspector">

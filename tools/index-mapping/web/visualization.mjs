@@ -44,6 +44,19 @@ function contrastInk(hue, saturation, lightness) {
   return luminance > .179 ? "#000" : "#fff";
 }
 
+// D3 Category10 (Tableau's classic categorical palette): deliberately cycle after
+// ten families rather than generating near-colliding hues. Color is not a unique
+// block ID; coordinates and selection rings remain authoritative.
+// https://d3js.org/d3-scale-chromatic/categorical#schemeCategory10
+// [block swatch, hue, saturation]; thread lightness keeps its existing four steps.
+const blockFamilies = [
+  ["#1f77b4", 204.56, 70.62], ["#ff7f0e", 28.13, 100],
+  ["#2ca02c", 120, 56.86], ["#d62728", 359.66, 69.17],
+  ["#9467bd", 271.4, 39.45], ["#8c564b", 10.15, 30.23],
+  ["#e377c2", 318.33, 65.85], ["#7f7f7f", 0, 0],
+  ["#bcbd22", 60.39, 69.51], ["#17becf", 185.54, 80],
+];
+
 export function workerPalette(trace) {
   const blocks = new Map();
   const palette = new Map();
@@ -52,18 +65,17 @@ export function workerPalette(trace) {
     if (!blocks.has(key)) blocks.set(key, []);
     blocks.get(key).push(worker);
   }
-  const hues = [220, 30, 160, 285, 65, 190];
   let b = 0;
   for (const workers of blocks.values()) {
-    const hue = hues[b] ?? (b * 137.508) % 360;
+    const [block, hue, saturation] = blockFamilies[b % blockFamilies.length];
     workers.forEach((worker, t) => {
       const lightness = 42 + (t % 4) * 7;
-      const threadHue = hue + Math.floor(t / 4) % 3 * 5;
+      const threadHue = (hue + Math.floor(t / 4) % 3 * 5) % 360;
       palette.set(worker.id, {
-        block: `hsl(${hue} 54% 43%)`,
-        current: `hsl(${threadHue} 65% ${lightness}%)`,
-        ink: contrastInk(threadHue, 65, lightness),
-        past: `hsl(${threadHue} 24% ${79 + (t % 4) * 3}%)`,
+        block,
+        current: `hsl(${threadHue} ${saturation}% ${lightness}%)`,
+        ink: contrastInk(threadHue, saturation, lightness),
+        past: `hsl(${threadHue} ${Math.min(24, saturation)}% ${79 + (t % 4) * 3}%)`,
       });
     });
     ++b;

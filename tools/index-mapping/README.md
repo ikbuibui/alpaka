@@ -154,8 +154,12 @@ are not asserted to execute together: a column is a logical iteration cohort,
 not hardware lockstep, elapsed time, or a barrier. Missing assignments remain `—`;
 a worker's next outer iteration is never packed into an exhausted inner-loop gap.
 
-- Block headers, tile outlines, and worker buttons use a shared block color family.
-  Threads use related shades and explicit IDs; colors alone do not identify a worker.
+- Block headers, tile outlines, and worker buttons use ten fixed D3 Category10
+  (classic Tableau) color families, intentionally cycling after ten blocks instead
+  of generating near-colliding hues. Thread lightness retains its four-step ramp.
+  This is not a guarantee of ten distinguishable colors for every form of color
+  vision: explicit block/thread IDs and selection remain necessary, especially
+  when families repeat.
 - Current assignments are vivid. Earlier assignments retain fixed, desaturated
   ownership colors; future map cells are neutral. **Keep history** controls past
   colors, without deleting trace records. Scrubbing backward recomputes history
@@ -163,7 +167,13 @@ a worker's next outer iteration is never packed into an exhausted inner-loop gap
 - Use the slider, step buttons, or column headers to move every worker to the same
   logical step. Click an event to select its worker, index, and composition.
   Worker selection never filters other workers' current assignments out of the map.
-  **All assignments of selected worker** controls only that worker's outline overlay.
+  **All assignments of selected worker** controls only that worker's outline overlay
+  (enabled initially, including past, current, and future indices). A dark ring with
+  a white halo identifies selected-thread cells without changing their temporal
+  fills. A small triangle identifies the pinned assignment; a dashed inset ring is
+  only a hover preview and never replaces selection. Worker buttons and timeline
+  rows carry matching dark emphasis and an explicit **Selected** label. The domain
+  header keeps the selected identity visible and reports idle steps.
 - When the timeline is expanded, all blocks are shown initially, with collapsible groups and an optional
   **Selected block** timeline filter. The logical cursor remains global when filtered.
   Timelines show at most 24 columns around the cursor; the slider reaches every step.
