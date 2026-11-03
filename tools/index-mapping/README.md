@@ -84,9 +84,42 @@ inner stride is one. Both are visible in the UI; the direct-mode stride is disab
 Linearized worker groups need a **1D range** in the current adapter. They are not
 silently mapped into a 2D range.
 
+## Workspace layout
+
+The worker hierarchy and index domain are the main view. The page uses the available
+screen width with small fixed gutters (16px on desktop, 8px on smaller screens),
+not an article-style maximum width. The grid preserves its aspect ratio rather than
+stretching coordinates into wide rectangles.
+
+- **Desktop, above 900px:** configuration, workers, and data are three adjacent panes.
+  Configuration starts at 240px, workers at 200px; the domain receives the remaining
+  width. The first two panes scroll independently. Drag their separators to resize,
+  or focus a separator and use Left/Right (Shift for larger steps), Home, or End.
+  Double-click resets that pane's width. Constraints reserve at least 320px for data.
+- **Configure / Workers** toggle the corresponding pane. Collapsing either gives its
+  space to the data domain; the selected worker's identity stays visible in the
+  domain header. Widths and desktop visibility are saved locally when storage is
+  available. **Reset layout** restores defaults without changing the mapping.
+  Shrinking the viewport does not overwrite preferred desktop widths.
+- **Phones and tablets, up to 900px:** the grid is shown first, with configuration
+  and workers initially collapsed. Their toolbar buttons open inline panels above
+  the grid, one at a time. Touch controls and cells have larger targets; tap to select
+  and swipe inside the grid for large domains. Hover previews are only enabled on
+  hover-capable devices. Wide grids and timelines scroll internally, not the page
+  horizontally. Selecting an assignment pans its data cell into view without moving
+  the whole page.
+- The toolbar keeps examples, dimensions, and launch assumptions visible. Detailed
+  settings remain in the configuration pane. The timeline is compact by default;
+  **Expand timeline** reveals more worker rows without changing the logical cursor.
+  Calculation, snippets, assignment tables, and diagnostics live in the initially
+  collapsed **Assignment details** section. Build provenance is also collapsible.
+
+Layout preferences are separate from shared C++ mapping configurations. Storage
+failures or malformed saved preferences fall back safely; the explorer still works.
+
 ## Reading the linked visualizations
 
-**Composition stays on the data map.** With **Show composition** enabled, selecting
+**Composition stays on the data map.** With **Composition** enabled, selecting
 an assignment outlines its tile in the block color, marks the tile origin, and
 routes a local-offset arrow along cell corners to the selected index. The equation
 strip shows `global = tile origin + local index` using the actual C++ trace values.
@@ -258,12 +291,14 @@ For an installed Chromium, omit the install command and use
   they also execute the locally resolved Godbolt source. With `--validate-http-header`
   they additionally test the actual downloaded URL header and record its hash. Optional CUDA builds run
   the same suite on a GPU when available; strict GPU execution can be required.
-- Pure visualization tests check nested-loop alignment, sparse/idle workers,
-  history, repeated ownership, deterministic palettes, and bounded timeline windows.
+- Pure visualization and layout tests check nested-loop alignment, sparse/idle
+  workers, history, repeated ownership, deterministic palettes, bounded timeline
+  windows, saved-preference validation, and pane-width constraints.
 - Browser tests compare rendered ownership/highlighting and timeline events with
   native C++ traces; test composition, hover previews, shared selection, reversible
   history, playback, reduced motion, filtering, range editing, guards, errors,
-  shared configurations, and narrow layouts. A screenshot is saved under
+  shared configurations, pane resizing/persistence, storage failures, full-width
+  desktops, 320–900px layouts, and mobile touch selection. Screenshots are saved under
   `build/browser-results/`.
 - Source fingerprints cover the alpaka headers, adapter, and build script; tests
   reject stale engines and stale copied UI assets. Every response carries the
@@ -292,6 +327,7 @@ Rebuild after editing sources; do not reuse a WASM module from another revision.
 - `web/`: dependency-free controls, SVG rendering, and trace inspection.
 - `test.mjs`: conformance and independent semantic checks.
 - `visualization.test.mjs`: dependency-free tests for timeline and color/history helpers.
+- `layout.test.mjs`: saved-layout validation and responsive width-constraint tests.
 - `browser.spec.mjs`: rendered-output checks using Playwright.
 
 The generated `build/site/` is an ordinary static site. We can review and iterate

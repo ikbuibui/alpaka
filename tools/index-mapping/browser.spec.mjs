@@ -79,6 +79,7 @@ test("partial tiles expose guarded assignments", async ({page}) => {
   await page.locator("#preset").selectOption("uneven");
   const config = {...defaults(), end: [3, 7]};
   await assertDrawing(page, config);
+  await page.locator("#assignment-details > summary").click();
   await page.locator("#tab-diagnostics").click();
   await expect(page.locator("#diagnostics")).toContainText("21/21");
   await expect(page.locator("#diagnostics .metrics > div").nth(2).locator("strong")).not.toHaveText("0");
@@ -101,6 +102,7 @@ test("FrameSpec is visibly an assumption and snippets reflect configuration", as
   await page.locator("#spec").selectOption("1");
   await expect(page.locator("#status")).toContainText("NOT resolved");
   await expect(page.locator("#frames-field")).toBeVisible();
+  await page.locator("#assignment-details > summary").click();
   await page.locator("#tab-code").click();
   await expect(page.locator("#code")).toContainText("onHost::FrameSpec");
   await expect(page.locator("#code")).toContainText("Actual backend FrameSpec resolution is NOT modeled");
@@ -114,6 +116,9 @@ test("shared configuration loads without network services and narrow layouts rem
   await assertDrawing(page, config);
   expect(requests.every(url => url.startsWith("http://127.0.0.1:8765/"))).toBe(true);
   await page.setViewportSize({width: 390, height: 844});
+  await expect(page.locator("#config-form")).toBeHidden();
+  await expect(page.locator("#domain-pane")).toBeVisible();
+  await page.locator('.pane-toggles [data-toggle-pane="config"]').click();
   await expect(page.locator("#config-form")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -338,6 +343,10 @@ test("large timelines are windowed and hierarchical layouts remain narrow-screen
   await expect(page.locator("[data-event-worker]")).toHaveCount(24);
   await page.locator("#timeline-step").fill("63");
   await expect(page.locator("#step-label")).toHaveText("64 / 64");
+  expect(await page.locator("#data").evaluate(data => {
+    const viewport = data.getBoundingClientRect(), cell = data.querySelector('[data-cell="63"] > rect').getBoundingClientRect();
+    return cell.left >= viewport.left && cell.right <= viewport.left + data.clientWidth;
+  })).toBe(true); // Following the timeline must reveal the selected index in a wide domain.
   await page.locator("#timeline").scrollIntoViewIfNeeded();
   await expect(page.locator('[data-event-step="63"]')).toBeInViewport();
   await expect(page.locator("[data-event-worker]")).toHaveCount(24);
@@ -345,6 +354,195 @@ test("large timelines are windowed and hierarchical layouts remain narrow-screen
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.locator("#dim").selectOption("2");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("wide desktops use the available width and keep the main view above details", async ({page}) => {
+  await page.setViewportSize({width: 2560, height: 1080});
+  await ready(page);
+  const workspace = await page.locator("#workspace").boundingBox();
+  const config = await page.locator("#config-pane").boundingBox();
+  const workers = await page.locator("#worker-pane").boundingBox();
+  const domain = await page.locator("#domain-pane").boundingBox();
+  expect(workspace.width).toBe(2528);
+  expect(config.width).toBe(240);
+  expect(workers.width).toBe(200);
+  expect(domain.width).toBeGreaterThan(2000);
+  expect(domain.y).toBeLessThan(180);
+  expect(domain.height).toBeGreaterThan(500);
+  await expect(page.locator("#assignment-details")).not.toHaveAttribute("open", "");
+  await expect(page.locator("#launch-summary")).toContainText("CUDA · blocks (2, 2) · threads/block (1, 4)");
+  const fits = await page.locator("#data").evaluate(data => {
+    const viewport = data.getBoundingClientRect();
+    return [...data.querySelectorAll("[data-cell] > rect:first-of-type")].every(cell => {
+      const rect = cell.getBoundingClientRect();
+      return rect.top >= viewport.top && rect.bottom <= viewport.bottom
+        && rect.left >= viewport.left && rect.right <= viewport.right;
+    });
+  });
+  expect(fits).toBe(true);
+  expect((await page.locator('.timeline-table th[scope="row"]').first().boundingBox()).width).toBeLessThanOrEqual(180);
+});
+
+test("pane resizing works with keyboard and pointer, persists, and resets independently", async ({page}) => {
+  await ready(page);
+  const splitter = page.locator("#config-splitter");
+  await splitter.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(splitter).toHaveAttribute("aria-valuenow", "256");
+  expect((await page.locator("#config-pane").boundingBox()).width).toBe(256);
+  await page.keyboard.press("Home");
+  await expect(splitter).toHaveAttribute("aria-valuenow", "180");
+  const handle = await splitter.boundingBox();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + 100, handle.y + handle.height / 2, {steps: 5});
+  await page.mouse.up();
+  await expect(splitter).toHaveAttribute("aria-valuenow", "280");
+  await expect(page.locator("body")).not.toHaveClass(/resizing/);
+  await page.locator("#workers-splitter").focus();
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.locator("#workers-splitter")).toHaveAttribute("aria-valuenow", "264");
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await expect(splitter).toHaveAttribute("aria-valuenow", "280");
+  await expect(page.locator("#workers-splitter")).toHaveAttribute("aria-valuenow", "264");
+  await splitter.dblclick();
+  await expect(splitter).toHaveAttribute("aria-valuenow", "240");
+  await page.locator("#dim").selectOption("1");
+  await page.locator("#reset-layout").click();
+  await expect(page.locator("#workers-splitter")).toHaveAttribute("aria-valuenow", "200");
+  await expect(page.locator("#dim")).toHaveValue("1"); // Layout reset must not reset the mapping.
+});
+
+test("collapsing side panes gives space to indices without losing shared selection", async ({page}) => {
+  await ready(page);
+  const initial = (await page.locator("#domain-pane").boundingBox()).width;
+  await page.locator('.pane-toggles [data-toggle-pane="config"]').click();
+  await expect(page.locator("#config-pane")).toBeHidden();
+  await expect(page.locator("#config-splitter")).toBeHidden();
+  await page.locator('.pane-toggles [data-toggle-pane="workers"]').click();
+  await expect(page.locator("#worker-pane")).toBeHidden();
+  expect((await page.locator("#domain-pane").boundingBox()).width).toBe(initial + 460);
+  await page.locator('[data-cell="3,6"]').click();
+  await expect(page.locator("#worker-selection")).toContainText("T14");
+  await expect(page.locator(".sum-equation")).toHaveAttribute("data-global", "3,6");
+  await page.locator('.pane-toggles [data-toggle-pane="workers"]').click();
+  await expect(page.locator('[data-worker="14"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-worker="14"]')).toBeInViewport();
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await expect(page.locator("#config-pane")).toBeHidden();
+  await expect(page.locator("#worker-pane")).toBeVisible();
+  await page.locator("#reset-layout").click();
+  await expect(page.locator("#config-pane")).toBeVisible();
+});
+
+test("responsive constraints preserve preferred widths across desktop and mobile", async ({page}) => {
+  await ready(page);
+  for (const id of ["config-splitter", "workers-splitter"]) {
+    await page.locator(`#${id}`).focus();
+    await page.keyboard.press("End");
+  }
+  for (const width of [1024, 950, 901]) {
+    await page.setViewportSize({width, height: 1000});
+    await expect.poll(async () => (await page.locator("#domain-pane").boundingBox()).width).toBeGreaterThanOrEqual(320);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.setViewportSize({width: 900, height: 1000});
+  await expect(page.locator("#config-pane")).toBeHidden();
+  await expect(page.locator("#worker-pane")).toBeHidden();
+  await page.setViewportSize({width: 2560, height: 1080});
+  await expect(page.locator("#config-pane")).toBeVisible();
+  await expect(page.locator("#config-splitter")).toHaveAttribute("aria-valuenow", "420");
+  await expect(page.locator("#workers-splitter")).toHaveAttribute("aria-valuenow", "400");
+});
+
+test("disabled or corrupt local storage cannot prevent the explorer from loading", async ({page}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Storage.prototype, "getItem", {value() { throw new Error("Storage blocked"); }});
+    Object.defineProperty(Storage.prototype, "setItem", {value() { throw new Error("Storage blocked"); }});
+  });
+  await ready(page);
+  await page.locator("#config-splitter").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#config-splitter")).toHaveAttribute("aria-valuenow", "256");
+  await assertDrawing(page, defaults());
+});
+
+test("compact timeline expands independently of mapping and keeps details secondary", async ({page}) => {
+  await ready(page);
+  expect((await page.locator("#timeline").boundingBox()).height).toBeLessThanOrEqual(222);
+  await page.locator("#step-forward").click();
+  await page.locator("#expand-timeline").click();
+  await expect(page.locator("#expand-timeline")).toHaveAttribute("aria-expanded", "true");
+  expect((await page.locator("#timeline").boundingBox()).height).toBeGreaterThan(400);
+  await expect(page.locator("#step-label")).toHaveText("2 / 2");
+  await page.locator("#expand-timeline").click();
+  expect((await page.locator("#timeline").boundingBox()).height).toBeLessThanOrEqual(222);
+  await page.locator("#assignment-details > summary").click();
+  await expect(page.locator("#calculation")).toBeVisible();
+});
+
+test("mobile touch supports cell selection, configuration, workers, and internal scrolling", async ({browser}) => {
+  const context = await browser.newContext({baseURL: "http://127.0.0.1:8765", viewport: {width: 390, height: 844},
+    isMobile: true, hasTouch: true});
+  try {
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await ready(page);
+    await expect(page.locator("#config-pane")).toBeHidden();
+    await expect(page.locator("#worker-pane")).toBeHidden();
+    await expect(page.locator("#data")).toBeInViewport();
+    await page.locator('[data-cell="1,2"]').tap();
+    await expect(page.locator(".sum-equation")).toHaveAttribute("data-global", "1,2");
+    await expect(page.locator("#step-label")).toHaveText("2 / 2");
+    await page.locator('.pane-toggles [data-toggle-pane="workers"]').tap();
+    await expect(page.locator("#worker-pane")).toBeVisible();
+    await page.locator('[data-worker="7"]').tap();
+    await expect(page.locator("#worker-selection")).toContainText("T7");
+    await page.locator('.pane-toggles [data-toggle-pane="config"]').tap();
+    await expect(page.locator("#worker-pane")).toBeHidden();
+    await expect(page.locator("#config-pane")).toBeVisible();
+    await page.locator("#spec").selectOption("1");
+    await expect(page.locator("#launch-summary")).toContainText("assumed ThreadSpec");
+    await expect(page.locator("#status")).toContainText("NOT resolved");
+    await page.locator('#config-pane [data-toggle-pane="config"]').tap();
+    await expect(page.locator("#config-pane")).toBeHidden();
+    await page.locator("#data").evaluate(data => { data.scrollLeft = data.scrollWidth; });
+    await page.locator('[data-cell="3,7"]').tap();
+    await expect(page.locator(".sum-equation")).toHaveAttribute("data-global", "3,7");
+    const cell = await page.locator('[data-cell="3,7"] > rect').first().boundingBox();
+    expect(cell.width).toBeGreaterThanOrEqual(44);
+    const control = await page.locator('.pane-toggles [data-toggle-pane="config"]').boundingBox();
+    expect(control.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+for (const width of [320, 390, 768, 900]) test(`map-first layout fits a ${width}px screen`, async ({page}) => {
+  await page.setViewportSize({width, height: 844});
+  await ready(page);
+  await expect(page.locator("#config-pane")).toBeHidden();
+  await expect(page.locator("#worker-pane")).toBeHidden();
+  expect((await page.locator("#data").boundingBox()).y).toBeLessThan(450);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.pane-toggles [data-toggle-pane="config"]').click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("capture wide and mobile workspaces", async ({browser}, testInfo) => {
+  for (const [name, viewport, touch] of [
+    ["wide", {width: 2560, height: 1080}, false], ["mobile", {width: 390, height: 844}, true],
+  ]) {
+    const context = await browser.newContext({baseURL: "http://127.0.0.1:8765", viewport, isMobile: touch, hasTouch: touch});
+    try {
+      const page = await context.newPage();
+      await ready(page);
+      await page.screenshot({path: testInfo.outputPath(`${name}.png`), fullPage: true});
+    } finally { await context.close(); }
+  }
 });
 
 test("capture the standalone prototype", async ({page}, testInfo) => {

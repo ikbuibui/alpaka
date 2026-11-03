@@ -3,6 +3,7 @@ import {apis, defaults, eligible, executors, fromHash, layouts, ownersOf,
   scalars, serialize, snippet, traversals, tuple, workers} from "./model.mjs";
 
 import {assignmentPhase, buildTimeline, iterationKey, timelineWindow, visibleVisits, workerPalette} from "./visualization.mjs";
+import {initializeLayout} from "./layout.mjs";
 
 const $ = id => document.getElementById(id);
 let config;
@@ -14,6 +15,8 @@ const collapsedBlocks = new Set();
 const cursor = () => timeline?.positions.get(`${outerIteration}:${innerIteration}`) ?? 0;
 const focused = () => preview ?? (selectedAssignment ? {worker: currentWorker(), assignment: selectedAssignment} : null);
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const canHover = matchMedia("(hover: hover)");
+const coarsePointer = matchMedia("(pointer: coarse)");
 const status = (message, error = false) => {
   $("status").textContent = message;
   $("status").classList.toggle("error", error);
@@ -70,6 +73,7 @@ function controls() {
   }
   $("outerWorker").options[1].disabled = config.dim === 2;
   for (const input of document.querySelectorAll('[data-field="stride"]')) input.disabled = Boolean(config.hierarchy);
+  $("launch-summary").textContent = `${["Host / CPU", "CUDA", "HIP", "oneAPI"][config.api] ?? "Unknown API"} · blocks ${tuple(config.blocks)} · threads/block ${tuple(config.threads)}${config.spec ? " · assumed ThreadSpec" : ""}`;
 }
 
 function currentWorker() { return trace?.workers.find(worker => worker.id === selectedWorker); }
@@ -118,12 +122,13 @@ function drawData() {
   const rows = config.dim === 2 ? config.end[0] : 1;
   const cols = config.end.at(-1);
   const cell = config.dim === 2 ? 48 : 56;
+  const minimumCell = coarsePointer.matches ? 52 : 44;
   const pad = 30, width = cols * cell + pad * 2, height = rows * cell + pad * 2;
   const selected = new Set(currentAssignments().filter(a => a.inBounds).map(a => a.index.join(",")));
   const focus = focused();
   const showComposition = config.hierarchy && $("show-composition").checked && focus;
   const step = cursor();
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="group" aria-label="Logical data indices">
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" style="min-width:${cols * minimumCell + pad * 2}px;min-height:${rows * minimumCell + pad * 2}px" role="group" aria-label="Logical data indices">
     <defs><pattern id="excluded" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6L6 0" stroke="#d7dce1" stroke-width="1"/></pattern>
     <marker id="offset-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6" fill="none" stroke="context-stroke"/></marker></defs>`;
   for (let row = 0; row < rows; ++row) for (let col = 0; col < cols; ++col) {
@@ -178,6 +183,18 @@ function drawData() {
   if (config.dim === 2) for (let row = 0; row < rows; ++row) svg += `<text class="axis" x="15" y="${pad + row * cell + cell / 2 + 4}" text-anchor="middle">${row}</text>`;
   $("data").innerHTML = svg + "</svg>";
   if (focusedCell) $("data").querySelector(`[data-cell="${focusedCell}"]`)?.focus({preventScroll: true});
+  const selectionKey = selectedAssignment ? `${selectedWorker}:${iterationKey(selectedAssignment)}:${selectedAssignment.index}` : "";
+  if ($("data").dataset.selectionKey !== selectionKey && selectedAssignment?.inBounds) {
+    const target = $("data").querySelector(`[data-cell="${selectedAssignment.index.join(",")}"] > rect`).getBoundingClientRect();
+    const viewport = $("data").getBoundingClientRect();
+    if (target.left < viewport.left) $("data").scrollLeft -= viewport.left - target.left + 8;
+    else if (target.right > viewport.left + $("data").clientWidth)
+      $("data").scrollLeft += target.right - viewport.left - $("data").clientWidth + 8;
+    if (target.top < viewport.top) $("data").scrollTop -= viewport.top - target.top + 8;
+    else if (target.bottom > viewport.top + $("data").clientHeight)
+      $("data").scrollTop += target.bottom - viewport.top - $("data").clientHeight + 8;
+  }
+  $("data").dataset.selectionKey = selectionKey;
   $("domain-size").textContent = `${rows} × ${cols}`;
 }
 
@@ -325,6 +342,7 @@ function inspect() {
     ?? list.find(a => a.outerIteration === outerIteration && a.innerIteration === innerIteration);
   selectedAssignment = assignment ?? null;
   const info = worker.inner;
+  $("worker-selection").textContent = `T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}`;
   let html = `<p class="selection-label">Worker T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}</p>`;
   if (config.hierarchy) html += `<div class="calculation-step"><span class="level">1</span><div><h3>Block → tile origin</h3>
     <p>Group index ${tuple(worker.outer.workerIndex)} of ${tuple(worker.outer.workerCount)}</p>
@@ -372,6 +390,7 @@ function render() {
 function recompute() {
   stopPlayback();
   preview = null;
+  delete $("data").dataset.selectionKey;
   if (!engine) return;
   try {
     const result = JSON.parse(engine.ccall("mapping_trace", "string", ["string"], [serialize(config)]));
@@ -389,7 +408,7 @@ function recompute() {
   } catch (error) {
     trace = null;
     timeline = null;
-    for (const id of ["workers", "data", "composition", "timeline", "calculation", "table", "diagnostics"]) $(id).replaceChildren();
+    for (const id of ["workers", "data", "composition", "timeline", "calculation", "table", "diagnostics", "worker-selection"]) $(id).replaceChildren();
     updateTimelineControls();
     $("code").textContent = "";
     status(error.message, true);
@@ -397,7 +416,7 @@ function recompute() {
 }
 
 $("config-form").addEventListener("submit", event => event.preventDefault());
-$("config-form").addEventListener("change", event => {
+function changeConfiguration(event) {
   const target = event.target;
   if (target.id === "preset") {
     config = defaults(config.dim);
@@ -415,7 +434,9 @@ $("config-form").addEventListener("change", event => {
   outerIteration = innerIteration = 0;
   controls();
   recompute();
-});
+}
+$("config-form").addEventListener("change", changeConfiguration);
+$("workspace-toolbar").addEventListener("change", changeConfiguration);
 $("workers").addEventListener("click", event => {
   const button = event.target.closest("[data-worker]");
   if (!button || !trace) return;
@@ -450,6 +471,13 @@ $("data").addEventListener("keydown", event => {
 $("show-composition").addEventListener("change", render);
 $("keep-history").addEventListener("change", render);
 $("timeline-scope").addEventListener("change", render);
+$("expand-timeline").addEventListener("click", () => {
+  const expanded = $("timeline-panel").classList.toggle("expanded");
+  $("expand-timeline").setAttribute("aria-expanded", String(expanded));
+  $("expand-timeline").textContent = expanded ? "Compact timeline" : "Expand timeline";
+  delete $("timeline").dataset.selectedWorker;
+  if (trace) drawTimeline();
+});
 $("step-back").addEventListener("click", () => { stopPlayback(); setStep(cursor() - 1); });
 $("step-forward").addEventListener("click", () => { stopPlayback(); setStep(cursor() + 1); });
 $("timeline-step").addEventListener("input", event => { stopPlayback(); setStep(Number(event.target.value)); });
@@ -502,14 +530,14 @@ function previewEntry(entry) {
 }
 $("workers").addEventListener("mouseover", event => {
   const button = event.target.closest("[data-worker]");
-  if (!button || !trace || playback !== null) return;
+  if (!button || !trace || playback !== null || !canHover.matches) return;
   const worker = trace.workers.find(w => w.id === Number(button.dataset.worker));
   const assignment = timeline.byWorker.get(worker.id).get(cursor());
   previewEntry(assignment ? {worker, assignment} : null);
 });
 $("data").addEventListener("mouseover", event => {
   const cell = event.target.closest("[data-cell]");
-  if (!cell || !trace || playback !== null) return;
+  if (!cell || !trace || playback !== null || !canHover.matches) return;
   const entries = owners.get(cell.dataset.cell) ?? [];
   const atStep = entries.filter(e => timeline.positions.get(iterationKey(e.assignment)) === cursor());
   previewEntry(atStep.find(e => e.worker.id === selectedWorker) ?? atStep[0] ?? entries[0] ?? null);
@@ -546,6 +574,7 @@ $("share").addEventListener("click", async () => {
   catch { status("Configuration is in the address bar. Copy the URL to share it."); }
 });
 if (location.hash) $("preset").value = "custom";
+initializeLayout(render);
 controls();
 try {
   manifest = await (await fetch("./manifest.json")).json();
