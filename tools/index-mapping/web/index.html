@@ -32,32 +32,56 @@
         <div class="panel-heading"><h2 id="config-title">Configure</h2><button type="button" data-toggle-pane="config" aria-controls="config-pane" aria-expanded="true" aria-label="Hide configuration">×</button></div>
         <form id="config-form">
           <details open><summary>Launch specification</summary>
-            <label>Input<select id="spec"><option value="0">ThreadSpec · explicit workers</option><option value="1">FrameSpec · assumed workers</option></select></label>
+            <label>Input<select id="spec"><option value="0">ThreadSpec · explicit workers</option><option value="1">FrameSpec · derived workers</option></select></label>
             <label>API<select id="api"><option value="0">Host / CPU</option><option value="1">CUDA / NVIDIA GPU</option><option value="2">HIP / AMD GPU</option><option value="3">oneAPI / Intel GPU</option></select></label>
             <label>Executor<select id="executor"></select></label>
             <div id="frames-field" class="vector-field" data-vector="frames" data-label="Number of frames"></div>
+            <label id="frame-type-field">Frame extent type<select id="frameType"><option value="0">Vec · runtime values</option><option value="1">CVec · compile-time values</option></select></label>
+            <div id="frame-extent-field" class="vector-field" data-vector="frameExtent" data-label="Launch frame extent"></div>
+            <label id="device-limit-field">Device profile · runtime max threads/block<input id="maxThreadsPerBlock" type="number" min="1" max="4096" step="1" value="1024"></label>
+            <p id="compile-limit" class="hint" hidden></p>
             <p id="assumption" class="hint">Explicit block/thread extents. This does not execute a GPU kernel.</p>
             <div class="vector-field" data-vector="blocks" data-label="Number of blocks"></div>
             <div class="vector-field" data-vector="threads" data-label="Threads per block"></div>
           </details>
-          <details open><summary>Logical domain</summary>
+          <details open><summary>Logical domain · desired coverage</summary>
             <div class="vector-field" data-vector="begin" data-label="Range begin (inclusive)"></div>
             <div class="vector-field" data-vector="end" data-label="Range end (exclusive)"></div>
-            <div class="vector-field" data-vector="stride" data-label="Range stride · direct mode"></div>
-            <div class="vector-field" data-vector="tile" data-label="Tile / frame extent"></div>
+            <p class="hint">The full region you want to cover, regardless of range stride or mapping gaps. These bounds describe the target and bounds guard; they configure a mapping range only when its checkbox is selected.</p>
             <p class="hint">Coordinates use (row, column). The rightmost dimension varies fastest.</p>
           </details>
           <details open><summary>Mapping hierarchy</summary>
-            <label>Structure<select id="hierarchy"><option value="0">Direct → logical range</option><option value="1">Blocks → tiles → elements</option></select></label>
+            <label>Structure<select id="hierarchy"><option value="0">Logical range</option><option value="1">Outer offsets → relative inner indices</option></select></label>
             <div id="outer-card" class="mapping-card">
-              <p class="card-title"><span class="level">1</span> Tile origins</p>
+              <p class="card-title"><span class="level">1</span> Outer offsets</p>
+              <label><input id="outerDomainBounds" type="checkbox"> Use logical-domain begin/end for outer range</label>
+              <div class="vector-field" data-vector="outerBegin" data-label="Outer range begin"></div>
+              <div class="vector-field" data-vector="outerEnd" data-label="Outer range end (exclusive)"></div>
+              <div class="vector-field" data-vector="outerStride" data-label="Outer range stride"></div>
               <label>Worker<select id="outerWorker"><option value="0">blocksInGrid</option><option value="1">linearBlocksInGrid · 1D range only</option></select></label>
               <label>Traversal<select id="outerTraversal" data-policy="traversal"></select></label>
               <label>Layout<select id="outerLayout" data-policy="layout"></select></label>
-              <p class="hint">Range: [begin, end), stride = tile extent.</p>
+              <p class="hint">Independent outer IdxRange. Returned indices are added to inner indices.</p>
             </div>
             <div class="mapping-card">
-              <p class="card-title"><span id="inner-level" class="level">2</span> <span id="inner-title">Elements inside tile</span></p>
+              <p class="card-title"><span id="inner-level" class="level">2</span> <span id="inner-title">Relative inner indices</span></p>
+              <div id="direct-range-fields">
+                <label><input id="directDomainBounds" type="checkbox"> Use logical-domain begin/end</label>
+                <div class="vector-field" data-vector="directBegin" data-label="Logical range begin"></div>
+                <div class="vector-field" data-vector="directEnd" data-label="Logical range end (exclusive)"></div>
+                <div class="vector-field" data-vector="stride" data-label="Logical range stride"></div>
+                <p class="hint">Stride selects iteration points: [0, 10), stride 3 yields 0, 3, 6, 9. It is not the worker layout.</p>
+              </div>
+              <label id="inner-range-choice">Inner IdxRange<select id="innerRangeMode"><option value="0">IdxRange{tileExtent}</option><option value="1">Explicit begin / end / stride</option></select></label>
+              <div id="tile-range-controls">
+                <label><input id="tileOuterStride" type="checkbox" checked> Mapping tile extent same as outer stride</label>
+                <div id="tile-range-field" class="vector-field" data-vector="tile" data-label="Mapping tile extent"></div>
+              </div>
+              <div id="inner-range-fields">
+                <div class="vector-field" data-vector="innerBegin" data-label="Inner range begin"></div>
+                <div class="vector-field" data-vector="innerEnd" data-label="Inner range end (exclusive)"></div>
+                <div class="vector-field" data-vector="innerStride" data-label="Inner range stride"></div>
+              </div>
               <label>Worker group<select id="worker"></select></label>
               <label>Traversal<select id="traversal" data-policy="traversal"></select></label>
               <label>Layout<select id="layout" data-policy="layout"></select></label>
@@ -82,7 +106,7 @@
           </div>
         </div>
         <div id="data" tabindex="0" role="region" aria-label="Scrollable logical index domain"></div>
-        <div class="legend"><span class="mobile-hint">↔ Swipe inside the grid to explore · tap an index to trace it</span><span title="Ten categorical block colors cycle; block/thread labels and selection distinguish repeated colors."><i class="swatch current"></i>Current · thread color</span><span><i class="swatch past"></i>Past · ownership retained</span><span><i class="swatch selected"></i>Selected thread · any step</span><span>× Multiple visits / owners</span><span><i class="swatch empty"></i>Future / unassigned</span></div>
+        <div class="legend"><span class="mobile-hint">↔ Swipe inside the grid to explore · tap an index to trace it</span><span title="Ten categorical block colors cycle; block/thread labels and selection distinguish repeated colors."><i class="swatch current"></i>Current · thread color</span><span><i class="swatch past"></i>Past · ownership retained</span><span><i class="swatch selected"></i>Selected thread · any step</span><span>× Multiple visits / owners</span><span><i class="swatch empty"></i>Assigned, not yet visited</span><span>Hatched: uncovered target</span><span>Muted: outside target</span></div>
         <details id="composition" class="composition" open>
           <summary>Index composition <span id="composition-summary" class="composition-summary"></span></summary>
           <div id="composition-content" class="composition-content"></div>

@@ -71,6 +71,7 @@ namespace backendValidation
     struct Domain
     {
         V<D> begin, end, stride, tile;
+        V<D> outerBegin, outerEnd, outerStride, innerBegin, innerEnd, innerStride, directBegin, directEnd;
     };
 
     template<uint32_t D>
@@ -88,7 +89,7 @@ namespace backendValidation
     };
 
     template<uint32_t D>
-    ALPAKA_FN_ACC void copy(uint32_t (&out)[D], V<D> const& in)
+    ALPAKA_FN_ACC void copy(uint32_t (&out)[D], alpaka::concepts::Vector auto const& in)
     {
         for(uint32_t d = 0; d < D; ++d)
             out[d] = in[d];
@@ -166,10 +167,13 @@ namespace backendValidation
                 for(auto origin : indices<OuterTraversal, OuterLayout>(
                         acc,
                         onAcc::worker::blocksInGrid,
-                        IdxRange{domain.begin, domain.end, domain.tile}))
+                        IdxRange{domain.outerBegin, domain.outerEnd, domain.outerStride}))
                 {
                     uint32_t inner = 0;
-                    for(auto local : indices<Traversal, Layout>(acc, group<Worker>(), IdxRange{domain.tile}))
+                    for(auto local : indices<Traversal, Layout>(
+                            acc,
+                            group<Worker>(),
+                            IdxRange{domain.innerBegin, domain.innerEnd, domain.innerStride}))
                         recorder.write(origin, local, outer, inner++);
                     ++outer;
                 }
@@ -180,7 +184,7 @@ namespace backendValidation
                 for(auto index : indices<Traversal, Layout>(
                         acc,
                         group<Worker>(),
-                        IdxRange{domain.begin, domain.end, domain.stride}))
+                        IdxRange{domain.directBegin, domain.directEnd, domain.stride}))
                     recorder.write(V<D>::fill(0), index, 0, inner++);
             }
             counts[Vec{uid}] = recorder.count;
@@ -221,10 +225,27 @@ namespace backendValidation
     std::string request(explorer::Config const& c)
     {
         std::ostringstream out;
-        out << "1 " << c.dim << ' ' << c.spec << ' ' << c.api << ' ' << c.executor << ' ' << c.hierarchy << ' '
+        out << "6 " << c.dim << ' ' << c.spec << ' ' << c.api << ' ' << c.executor << ' ' << c.hierarchy << ' '
             << c.worker << ' ' << c.traversal << ' ' << c.layout << ' ' << c.outerTraversal << ' ' << c.outerLayout
-            << ' ' << c.outerWorker;
-        for(auto const* values : {&c.blocks, &c.threads, &c.frames, &c.tile, &c.begin, &c.end, &c.stride})
+            << ' ' << c.outerWorker << ' ' << c.maxThreadsPerBlock << ' ' << c.frameType << ' ' << c.innerRangeMode
+            << ' ' << c.outerDomainBounds << ' ' << c.directDomainBounds << ' ' << c.tileOuterStride;
+        for(auto const* values :
+            {&c.blocks,
+             &c.threads,
+             &c.frames,
+             &c.tile,
+             &c.begin,
+             &c.end,
+             &c.stride,
+             &c.frameExtent,
+             &c.outerBegin,
+             &c.outerEnd,
+             &c.outerStride,
+             &c.innerBegin,
+             &c.innerEnd,
+             &c.innerStride,
+             &c.directBegin,
+             &c.directEnd})
             for(auto value : *values)
                 out << ' ' << value;
         return out.str();
@@ -238,11 +259,21 @@ namespace backendValidation
         typename Layout = onAcc::layout::Optimized,
         typename OuterTraversal = Traversal,
         typename OuterLayout = Layout>
-    void runCase(auto device, auto executor, bool json, char const* label, int variation = 0, bool corrupt = false)
+    void runCase(
+        auto device,
+        auto executor,
+        bool json,
+        char const* label,
+        int variation = 0,
+        bool corrupt = false,
+        int frameLaunch = 0)
     {
         // Edit these small dimensions to reproduce a configuration in Godbolt.
         explorer::Config c{};
-        c.version = 1;
+        c.version = 6;
+        c.spec = frameLaunch != 0;
+        c.frameType = frameLaunch == 2;
+        c.maxThreadsPerBlock = device.getDeviceProperties().maxThreadsPerBlock;
         c.dim = D;
         c.hierarchy = Hierarchy;
         c.worker = Worker;
@@ -271,12 +302,39 @@ namespace backendValidation
             c.stride = {2, 3};
         }
         c.frames = c.blocks;
+        c.frameExtent = D == 1 ? std::vector<int>{4} : std::vector<int>{4, 2};
+        if(frameLaunch)
+        {
+            // Independent expected launch, deliberately using frame extents different from mapping tiles.
+            c.blocks = c.api ? c.frames : std::vector<int>(D, 1);
+            c.threads = c.api ? c.frameExtent : std::vector<int>(D, 1);
+        }
         if(variation == 1)
             c.begin = c.end; // Empty domain: workers must still report zero.
         if(variation == 2)
             c.end = D == 1 ? std::vector<int>{3} : std::vector<int>{2, 3}; // Idle workers.
         if(variation == 3)
             c.blocks.assign(D, 1); // Multiple outer iterations per block.
+        c.directBegin = c.begin;
+        c.directEnd = c.end;
+        c.outerBegin = c.begin;
+        c.outerEnd = c.end;
+        c.outerStride = c.tile;
+        c.innerBegin.assign(D, 0);
+        c.innerEnd = c.tile;
+        c.innerStride.assign(D, 1);
+        if(variation == 4 || variation == 5)
+        {
+            c.innerRangeMode = 1;
+            c.outerBegin.assign(D, 1);
+            c.outerEnd.assign(D, 10);
+            c.outerStride.assign(D, 4);
+            c.innerBegin.assign(D, 1);
+            c.innerEnd.assign(D, 6);
+            c.innerStride.assign(D, 2);
+            if(variation == 5)
+                c.innerBegin = c.innerEnd;
+        }
         c = explorer::parse(request(c).c_str());
         auto const blocks = explorer::vec<D>(c.blocks), threads = explorer::vec<D>(c.threads);
         auto const numWorkers = blocks.product() * threads.product();
@@ -284,7 +342,15 @@ namespace backendValidation
             explorer::vec<D>(c.begin),
             explorer::vec<D>(c.end),
             explorer::vec<D>(c.stride),
-            explorer::vec<D>(c.tile)};
+            explorer::vec<D>(c.tile),
+            explorer::vec<D>(c.outerBegin),
+            explorer::vec<D>(c.outerEnd),
+            explorer::vec<D>(c.outerStride),
+            c.innerRangeMode ? explorer::vec<D>(c.innerBegin) : V<D>::fill(0),
+            c.innerRangeMode ? explorer::vec<D>(c.innerEnd) : explorer::vec<D>(c.tile),
+            c.innerRangeMode ? explorer::vec<D>(c.innerStride) : V<D>::fill(1),
+            explorer::vec<D>(c.directBegin),
+            explorer::vec<D>(c.directEnd)};
         static_assert(std::is_trivially_copyable_v<Record<D>> && std::is_trivially_copyable_v<WorkerInfo<D>>);
         auto recordsH = onHost::allocHost<Record<D>>(Vec{numWorkers, capacity + 1});
         auto countsH = onHost::allocHost<uint32_t>(Vec{numWorkers});
@@ -296,15 +362,28 @@ namespace backendValidation
         onHost::memset(queue, recordsD, 0xff);
         onHost::memset(queue, countsD, 0xff);
         onHost::memset(queue, workersD, 0xff);
-        auto const launch = onHost::ThreadSpec{blocks, threads, executor};
-        queue.enqueue(
-            launch,
-            RecordKernel<D, Hierarchy, Worker, Traversal, Layout, OuterTraversal, OuterLayout>{},
-            recordsD,
-            countsD,
-            workersD,
-            domain,
-            numWorkers);
+        auto enqueue = [&](auto const& launch)
+        {
+            queue.enqueue(
+                launch,
+                RecordKernel<D, Hierarchy, Worker, Traversal, Layout, OuterTraversal, OuterLayout>{},
+                recordsD,
+                countsD,
+                workersD,
+                domain,
+                numWorkers);
+        };
+        if(frameLaunch == 2)
+        {
+            if constexpr(D == 1)
+                enqueue(onHost::FrameSpec{explorer::vec<D>(c.frames), CVec<uint32_t, 4u>{}, executor});
+            else
+                enqueue(onHost::FrameSpec{explorer::vec<D>(c.frames), CVec<uint32_t, 4u, 2u>{}, executor});
+        }
+        else if(frameLaunch)
+            enqueue(onHost::FrameSpec{explorer::vec<D>(c.frames), explorer::vec<D>(c.frameExtent), executor});
+        else
+            enqueue(onHost::ThreadSpec{blocks, threads, executor});
         // CUDA writes device memory; host buffers are read only after copy-back and wait.
         onHost::memcpy(queue, recordsH, recordsD);
         onHost::memcpy(queue, countsH, countsD);
@@ -341,9 +420,9 @@ namespace backendValidation
                 acc,
                 Worker,
                 IdxRange{
-                    Hierarchy ? V<D>::fill(0) : domain.begin,
-                    Hierarchy ? domain.tile : domain.end,
-                    Hierarchy ? V<D>::fill(1) : domain.stride},
+                    Hierarchy ? domain.innerBegin : domain.directBegin,
+                    Hierarchy ? domain.innerEnd : domain.directEnd,
+                    Hierarchy ? domain.innerStride : domain.stride},
                 c.traversal,
                 c.layout);
             std::vector<V<D>> origins{V<D>::fill(0)};
@@ -351,7 +430,7 @@ namespace backendValidation
                 origins = explorer::map<D>(
                               acc,
                               2,
-                              IdxRange{domain.begin, domain.end, domain.tile},
+                              IdxRange{domain.outerBegin, domain.outerEnd, domain.outerStride},
                               c.outerTraversal,
                               c.outerLayout)
                               .indices;
@@ -411,13 +490,28 @@ namespace backendValidation
         {
             auto const index = mapToND(domain.end, linear);
             bool eligible = true;
+            uint32_t multiplicity = 1;
             for(uint32_t d = 0; d < D; ++d)
+            {
                 eligible = eligible && index[d] >= domain.begin[d] && index[d] < domain.end[d]
-                           && (Hierarchy || (index[d] - domain.begin[d]) % domain.stride[d] == 0);
+                           && (Hierarchy
+                               || (index[d] >= domain.directBegin[d] && index[d] < domain.directEnd[d]
+                                   && (index[d] - domain.directBegin[d]) % domain.stride[d] == 0));
+                if constexpr(Hierarchy)
+                {
+                    uint32_t combinations = 0;
+                    for(auto outer = domain.outerBegin[d]; outer < domain.outerEnd[d]; outer += domain.outerStride[d])
+                        for(auto inner = domain.innerBegin[d]; inner < domain.innerEnd[d];
+                            inner += domain.innerStride[d])
+                            combinations += outer + inner == index[d];
+                    multiplicity *= combinations;
+                }
+            }
+            eligible = eligible && multiplicity > 0;
             check((coverage[linear] > 0) == eligible, std::string{label} + ": domain coverage differs");
             if constexpr((Hierarchy && Worker == 4) || (!Hierarchy && Worker == 0))
                 check(
-                    coverage[linear] == uint32_t(eligible),
+                    coverage[linear] == (eligible ? multiplicity : 0u),
                     std::string{label} + ": duplicate or missing assignment");
         }
         if(json)
@@ -432,6 +526,12 @@ namespace backendValidation
         using namespace onAcc;
         runCase<D, false>(device, executor, json, "direct-default", 0, corrupt);
         runCase<D, true>(device, executor, json, "hierarchy-default");
+        runCase<D, true>(device, executor, json, "hierarchy-independent-strided-ranges", 4);
+        runCase<D, true>(device, executor, json, "hierarchy-empty-inner-range", 5);
+        runCase<D, false>(device, executor, json, "frame-direct", 0, false, true);
+        runCase<D, true>(device, executor, json, "frame-hierarchy-independent-tiles", 0, false, true);
+        runCase<D, false>(device, executor, json, "cvec-frame-direct", 0, false, 2);
+        runCase<D, true>(device, executor, json, "cvec-frame-hierarchy-independent-tiles", 0, false, 2);
         runCase<D, false, 0, DefaultTraversal, layout::Contiguous>(
             device,
             executor,
@@ -469,7 +569,7 @@ namespace backendValidation
         auto device = selector.makeDevice(0);
         dimensionSuite<1>(device, executor, json, corrupt);
         dimensionSuite<2>(device, executor, json, corrupt);
-        std::cerr << "PASS: 31 real " << ALPAKA_TYPEOF(api)::getName()
+        std::cerr << "PASS: 43 real " << ALPAKA_TYPEOF(api)::getName()
                   << " kernel launches; per-worker buffers copied back and matched against explorer.\n";
         return 0;
     }

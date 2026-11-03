@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-import {apis, tuple, workers} from "./model.mjs";
+import {apis, innerRange, resolutionDescription, tuple, workers} from "./model.mjs";
 import {assignmentsFor, selection} from "./exploration.mjs";
 
 const $ = id => document.getElementById(id);
@@ -8,15 +8,19 @@ function calculation(config, model, state) {
   const {worker, assignment} = selection(model, state);
   const info = worker.inner;
   let html = `<p class="selection-label">Worker T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}</p>`;
-  if (config.hierarchy) html += `<div class="calculation-step"><span class="level">1</span><div><h3>Block → tile origin</h3>
+  if (config.hierarchy) html += `<div class="calculation-step"><span class="level">1</span><div><h3>Block → outer offset</h3>
+    <p>IdxRange [${tuple(config.outerBegin)}, ${tuple(config.outerEnd)}), stride ${tuple(config.outerStride)}</p>
     <p>Group index ${tuple(worker.outer.workerIndex)} of ${tuple(worker.outer.workerCount)}</p>
     <code>${worker.outer.traversal} traversal · ${worker.outer.layout} layout</code></div></div>`;
-  html += `<div class="calculation-step"><span class="level">${config.hierarchy ? 2 : 1}</span><div><h3>${workers[config.worker]} → ${config.hierarchy ? "local index" : "range index"}</h3>
+  const range = config.hierarchy ? innerRange(config)
+    : {begin: config.directBegin, end: config.directEnd, stride: config.stride};
+  html += `<div class="calculation-step"><span class="level">${config.hierarchy ? 2 : 1}</span><div><h3>${workers[config.worker]} → ${config.hierarchy ? "relative inner index" : "range index"}</h3>
+    <p>IdxRange [${tuple(range.begin)}, ${tuple(range.end)}), stride ${tuple(range.stride)}</p>
     <p>Group index ${tuple(info.workerIndex)} of ${tuple(info.workerCount)}</p>
     <code>${info.traversal} traversal · ${info.layout} layout</code></div></div>`;
   if (assignment) {
     html += `<div class="formula">${config.hierarchy
-      ? `global = tileStart + localIdx<br><strong>${tuple(assignment.index)} = ${tuple(assignment.origin)} + ${tuple(assignment.local)}</strong>`
+      ? `global = outerIdx + innerIdx<br><strong>${tuple(assignment.index)} = ${tuple(assignment.origin)} + ${tuple(assignment.local)}</strong>`
       : `Returned index<br><strong>${tuple(assignment.index)}</strong>`}</div>
       <p>Outer iteration <strong>${assignment.outerIteration}</strong> · Inner iteration <strong>${assignment.innerIteration}</strong></p>
       <p>${assignment.inBounds ? `Linear offset (origin-zero buffer): <strong>${assignment.linear}</strong>` : "<strong>Outside the logical range — rejected by the bounds guard.</strong>"}</p>`;
@@ -32,13 +36,14 @@ function assignments(model, state) {
 
 function diagnostics(config, model) {
   const {expected, covered, repeated, guarded, idle} = model.diagnostics;
-  return `<div class="metrics"><div><strong>${covered}/${expected}</strong><span>eligible indices covered</span></div>
+  return `<div class="metrics"><div><strong>${covered}/${expected}</strong><span>desired domain indices covered</span></div>
     <div><strong>${repeated}</strong><span>indices with repeated assignments</span></div>
     <div><strong>${guarded}</strong><span>assignments rejected by guard</span></div>
     <div><strong>${idle}</strong><span>idle workers</span></div></div>
+    <p>${expected - covered} target indices have no assignment, including stride-skipped points and mapping gaps. Hatched cells are uncovered; white assigned cells have not yet been visited in playback.</p>
     <p>Repeated assignments can be intentional: multiple physical workers may share a worker-group identity. Coverage alone does not prove a kernel is race-free.</p>
     <p><strong>Context:</strong> ${apis[config.api]} API tags in synthetic worker contexts; no device kernel is executed.</p>
-    ${config.spec ? `<p class="assumption">FrameSpec logical capacity ${tuple(model.trace.frameCapacity)}. Blocks and threads are explicit assumptions, not a backend-derived launch.</p>` : ""}
+    ${config.spec ? `<p class="assumption">FrameSpec logical capacity ${tuple(model.trace.frameCapacity)}. ${resolutionDescription(config, model.trace)} Derived blocks ${tuple(model.trace.blocks)}, threads/block ${tuple(model.trace.threads)}.</p>` : ""}
     <p class="hint">No occupancy, timing, synchronization, memory-race, or hardware scheduling simulation. Warp and boundary overloads are not implemented.</p>`;
 }
 

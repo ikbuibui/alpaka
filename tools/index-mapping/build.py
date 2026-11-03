@@ -248,7 +248,10 @@ def main():
         "godboltHeaderUrl": args.godbolt_header_url if args.single_header else None,
         "godboltHttpCompiled": http_hash is not None,
         "godboltHttpHeaderSha256": http_hash,
-        "scope": "Synthetic worker contexts; no backend execution or FrameSpec auto-resolution",
+        "scope": (
+            "Synthetic worker contexts; Vec/CVec FrameSpec resolution for an assumed device profile; "
+            "no backend execution"
+        ),
     }
     (BUILD / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     (site / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

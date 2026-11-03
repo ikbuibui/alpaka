@@ -47,7 +47,7 @@ test("SVG ownership and worker selection agree with native C++", async ({page}) 
 });
 
 test("workers with repeated block colors remain independently selectable", async ({page}) => {
-  const config = {...defaults(), blocks: [3, 4], end: [12, 16]};
+  const config = {...defaults(), blocks: [3, 4], end: [12, 16], outerEnd: [12, 16]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   const colors = await page.locator(".block-group").evaluateAll(groups =>
     groups.map(g => g.style.getPropertyValue("--block-color")));
@@ -60,7 +60,7 @@ test("workers with repeated block colors remain independently selectable", async
 });
 
 test("selected-thread rings span past, current and future without changing temporal fills", async ({page}) => {
-  const config = {...defaults(), blocks: [3, 4], end: [12, 16]};
+  const config = {...defaults(), blocks: [3, 4], end: [12, 16], outerEnd: [12, 16]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await expandTimeline(page);
   await page.locator("#step-forward").click();
@@ -96,7 +96,7 @@ test("selected-thread rings span past, current and future without changing tempo
 });
 
 test("idle selected threads retain an explicit identity without inventing a footprint", async ({page}) => {
-  const config = {...defaults(1), hierarchy: 0, worker: 0, end: [2], layout: 1};
+  const config = {...defaults(1), hierarchy: 0, worker: 0, end: [2], directEnd: [2], layout: 1};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   const idle = reference(config).workers.find(w => !w.assignments.length);
   expect(idle).toBeDefined();
@@ -122,11 +122,12 @@ test("1D direct mapping, offsets and strides match native C++", async ({page}) =
   await ready(page);
   await page.locator("#dim").selectOption("1");
   await page.locator("#preset").selectOption("direct");
+  await page.locator("#directDomainBounds").check();
   for (const [field, value] of [["begin", "2"], ["end", "17"], ["stride", "3"]]) {
     await page.locator(`[data-field="${field}"]`).fill(value);
     await page.locator(`[data-field="${field}"]`).dispatchEvent("change");
   }
-  const config = {...defaults(1), hierarchy: 0, worker: 0, begin: [2], end: [17], stride: [3]};
+  const config = {...defaults(1), hierarchy: 0, worker: 0, directDomainBounds: 1, begin: [2], end: [17], stride: [3]};
   await assertDrawing(page, config);
   await page.locator("#layout").selectOption("2");
   config.layout = 2;
@@ -175,15 +176,341 @@ test("invalid configurations clear the previous result", async ({page}) => {
   await assertDrawing(page, {...defaults(), api: 0, threads: [1, 1]});
 });
 
-test("FrameSpec is visibly an assumption and snippets reflect configuration", async ({page}) => {
+test("FrameSpec derives read-only workers and prints device-profile assumptions", async ({page}) => {
   await ready(page);
   await page.locator("#spec").selectOption("1");
-  await expect(page.locator("#status")).toContainText("NOT resolved");
+  await expect(page.locator("#status")).toContainText("resolved for this device profile");
   await expect(page.locator("#frames-field")).toBeVisible();
+  await expect(page.locator('[data-field="threads"]').first()).toBeDisabled();
+  await expect(page.locator('[data-field="blocks"]').first()).toBeDisabled();
+  await expect(page.locator('[data-field="threads"][data-dimension="0"]')).toHaveValue("2");
+  await expect(page.locator("#assumption")).toContainText("anyExecutor → gpuCuda");
+  await expect(page.locator("#assumption")).toContainText("maxThreadsPerBlock = 1024");
+  await assertDrawing(page, {...defaults(), spec: 1});
+  await page.locator("#maxThreadsPerBlock").fill("2");
+  await page.locator("#maxThreadsPerBlock").dispatchEvent("change");
+  await expect(page.locator('[data-field="threads"][data-dimension="0"]')).toHaveValue("1");
+  await expect(page.locator('[data-field="threads"][data-dimension="1"]')).toHaveValue("2");
+  await assertDrawing(page, {...defaults(), spec: 1, maxThreadsPerBlock: 2});
   await page.locator("#assignment-details > summary").click();
   await page.locator("#tab-code").click();
   await expect(page.locator("#code")).toContainText("onHost::FrameSpec");
-  await expect(page.locator("#code")).toContainText("Actual backend FrameSpec resolution is NOT modeled");
+  await expect(page.locator("#code")).toContainText("Derived ThreadSpec: blocks=(2, 2), threads=(1, 2)");
+  await expect(page.locator("#code")).toContainText("No hardware queried");
+  await page.locator("#spec").selectOption("0");
+  await expect(page.locator('[data-field="threads"][data-dimension="1"]')).toBeEnabled();
+  await expect(page.locator('[data-field="threads"][data-dimension="1"]')).toHaveValue("4");
+  await expect(page.locator('[data-field="threads"][data-dimension="0"]')).toHaveValue("1");
+});
+
+test("Vec and CVec toggle the actual resolution path and preserve runtime profile inputs", async ({page}) => {
+  await ready(page);
+  await page.locator("#spec").selectOption("1");
+  await page.locator("#maxThreadsPerBlock").fill("2");
+  await page.locator("#maxThreadsPerBlock").dispatchEvent("change");
+  await expect(page.locator('[data-field="threads"][data-dimension="0"]')).toHaveValue("1");
+  await page.locator("#frameType").selectOption("1");
+  await expect(page.locator("#maxThreadsPerBlock")).toBeDisabled();
+  await expect(page.locator("#maxThreadsPerBlock")).toHaveValue("2");
+  await expect(page.locator("#compile-limit")).toContainText("compile-time thread limit: 1024");
+  await expect(page.locator('[data-field="threads"][data-dimension="0"]')).toHaveValue("2");
+  await expect(page.locator('[data-field="threads"][data-dimension="1"]')).toHaveValue("4");
+  await assertDrawing(page, {...defaults(), spec: 1, frameType: 1, maxThreadsPerBlock: 2});
+  await page.locator("#assignment-details > summary").click();
+  await page.locator("#tab-code").click();
+  await expect(page.locator("#code")).toContainText("CVec<uint32_t, 2u, 4u>{}");
+  await expect(page.locator("#code")).toContainText("Runtime device limit is not used");
+  await page.locator("#frameType").selectOption("0");
+  await expect(page.locator("#maxThreadsPerBlock")).toBeEnabled();
+  await expect(page.locator('[data-field="threads"][data-dimension="0"]')).toHaveValue("1");
+  await expect(page.locator('[data-field="threads"][data-dimension="1"]')).toHaveValue("2");
+  await expect(page.locator("#compile-limit")).toBeHidden();
+});
+
+test("launch frame extents stay independent and mapping tiles can be unlinked from outer stride", async ({page}) => {
+  await ready(page);
+  await page.locator("#tileOuterStride").uncheck();
+  await page.locator("#spec").selectOption("1");
+  const frame = page.locator('[data-field="frameExtent"][data-dimension="0"]');
+  const tile = page.locator('[data-field="tile"][data-dimension="0"]');
+  await expect(tile).toBeEnabled();
+  await frame.fill("4");
+  await frame.dispatchEvent("change");
+  await expect(tile).toHaveValue("2");
+  await expect(page.locator('[data-field="threads"][data-dimension="0"]')).toHaveValue("4");
+  const config = {...defaults(), spec: 1, frameExtent: [4, 4], tileOuterStride: 0};
+  await assertDrawing(page, config);
+  await expect(page.locator("#coupleTile")).toHaveCount(0);
+  await expect(page.locator('[data-field="outerStride"][data-dimension="0"]')).toHaveValue("2");
+  await tile.fill("3");
+  await tile.dispatchEvent("change");
+  await expect(frame).toHaveValue("4");
+  await assertDrawing(page, {...config, tile: [3, 4]});
+  await expect(page.locator('[data-field="outerStride"][data-dimension="0"]')).toHaveValue("2");
+});
+
+test("pane order, independent desired domain, and tile-follows-stride link match configuration", async ({page}) => {
+  await ready(page);
+  expect(await page.locator('#config-form > details > summary').allTextContents()).toEqual([
+    "Launch specification", "Logical domain · desired coverage", "Mapping hierarchy"]);
+  const begin = page.locator('[data-field="outerBegin"][data-dimension="0"]');
+  const end = page.locator('[data-field="outerEnd"][data-dimension="0"]');
+  const tile = page.locator('[data-field="tile"][data-dimension="0"]');
+  await expect(page.locator("#outerDomainBounds")).not.toBeChecked();
+  await expect(page.locator("#tileOuterStride")).toBeChecked();
+  await expect(begin).toBeEnabled();
+  await expect(tile).toBeDisabled();
+  const set = async (field, value) => {
+    const input = page.locator(`[data-field="${field}"][data-dimension="0"]`);
+    await input.fill(String(value));
+    await input.dispatchEvent("change");
+  };
+  await set("begin", 1);
+  await set("end", 6);
+  await expect(begin).toHaveValue("0");
+  await expect(end).toHaveValue("4");
+  await set("outerStride", 3);
+  await expect(tile).toHaveValue("3");
+  await page.locator("#tileOuterStride").uncheck();
+  await expect(tile).toBeEnabled();
+  await set("tile", 2);
+  await expect(page.locator('[data-field="outerStride"][data-dimension="0"]')).toHaveValue("3");
+  await page.locator("#tileOuterStride").check();
+  await expect(tile).toHaveValue("3");
+  await page.locator("#outerDomainBounds").check();
+  await expect(begin).toHaveValue("1");
+  await expect(end).toHaveValue("6");
+  await expect(begin).toBeDisabled();
+  await page.locator("#outerDomainBounds").uncheck();
+  await set("begin", 0);
+  await expect(begin).toHaveValue("1");
+  await page.locator("#innerRangeMode").selectOption("1");
+  await expect(tile).toBeHidden();
+  await page.locator("#innerRangeMode").selectOption("0");
+  await expect(tile).toHaveValue("3");
+  await page.locator("#share").click();
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await expect(page.locator("#tileOuterStride")).toBeChecked();
+  await expect(tile).toBeDisabled();
+  await assertDrawing(page, {...defaults(), end: [6, 8], outerBegin: [1, 0], outerEnd: [6, 8], outerStride: [3, 4]});
+});
+
+test("logical range is independent of desired coverage and stride gaps are uncovered", async ({page}) => {
+  await ready(page);
+  await page.locator("#dim").selectOption("1");
+  await page.locator("#hierarchy").selectOption("0");
+  await expect(page.locator("#outer-card")).toBeHidden();
+  await expect(page.locator("#direct-range-fields")).toBeVisible();
+  await expect(page.locator("#tile-range-controls")).toBeHidden();
+  await expect(page.locator("#directDomainBounds")).not.toBeChecked();
+  const set = async (field, value) => {
+    const input = page.locator(`[data-field="${field}"]`);
+    await input.fill(String(value));
+    await input.dispatchEvent("change");
+  };
+  await set("end", 10);
+  await expect(page.locator('[data-field="directEnd"]')).toHaveValue("16");
+  await set("directEnd", 10);
+  await set("stride", 3);
+  await expect(page.locator('[data-coverage="uncovered"]')).toHaveCount(6);
+  await expect(page.locator('[data-cell="1"] .cell-fill')).toHaveAttribute("fill", "url(#excluded)");
+  await expect(page.locator('[data-cell="0"]')).toHaveAttribute("data-coverage", "assigned");
+  await page.locator("#assignment-details > summary").click();
+  await page.locator("#tab-diagnostics").click();
+  await expect(page.locator("#diagnostics")).toContainText("4/10");
+  await expect(page.locator("#diagnostics")).toContainText("6 target indices have no assignment");
+  await page.locator("#directDomainBounds").check();
+  await expect(page.locator('[data-field="directEnd"]')).toBeDisabled();
+  await set("end", 12);
+  await expect(page.locator('[data-field="directEnd"]')).toHaveValue("12");
+  await page.locator("#directDomainBounds").uncheck();
+  await set("begin", 2);
+  await expect(page.locator('[data-field="directBegin"]')).toHaveValue("0");
+  await expect(page.locator('[data-cell="0"]')).toHaveAttribute("data-coverage", "outside");
+  await expect(page.locator('[data-cell="0"] .cell-fill')).toHaveAttribute("fill", "#eff1f3");
+  await page.locator("#hierarchy").selectOption("1");
+  await expect(page.locator("#direct-range-fields")).toBeHidden();
+  await page.locator("#tileOuterStride").uncheck();
+  await set("outerBegin", 0);
+  await set("outerEnd", 12);
+  await set("outerStride", 3);
+  await set("tile", 1);
+  await expect(page.locator('[data-cell="4"]')).toHaveAttribute("data-coverage", "uncovered");
+  await expect(page.locator('[data-cell="4"] .cell-fill')).toHaveAttribute("fill", "url(#excluded)");
+  await page.locator("#hierarchy").selectOption("0");
+  await expect(page.locator('[data-field="directEnd"]')).toHaveValue("12");
+  await expect(page.locator('[data-field="stride"]')).toHaveValue("3");
+});
+
+for (const dim of [1, 2]) {
+  test(`${dim}D direct range inputs accept zero bounds and an empty range`, async ({page}) => {
+    const config = {...defaults(dim), hierarchy: 0, worker: 0};
+    await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+    for (const field of ["directBegin", "directEnd"]) {
+      const inputs = page.locator(`[data-field="${field}"]`);
+      for (let d = 0; d < dim; ++d) {
+        const input = inputs.nth(d);
+        await expect(input).toHaveAttribute("min", "0");
+        expect(await input.evaluate(el => el.checkValidity())).toBe(true);
+        await input.fill("1");
+        await input.press("ArrowDown");
+        await expect(input).toHaveValue("0");
+        await input.dispatchEvent("change");
+        config[field][d] = 0;
+        expect(await input.evaluate(el => el.checkValidity())).toBe(true);
+      }
+    }
+    await expect(page.locator("#status")).toContainText("Live C++");
+    await expect(page.locator("#step-label")).toHaveText("0 / 0");
+    await assertDrawing(page, config);
+  });
+
+  for (const [field, value, hierarchy, innerRangeMode, control, fallback] of [
+    ["innerBegin", 64, 1, 1, "innerRangeMode", 0],
+    ["innerStride", 0, 1, 1, "innerRangeMode", 0],
+    ["outerBegin", 64, 1, 0, "hierarchy", 0],
+    ["outerStride", 0, 1, 0, "hierarchy", 0],
+    ["directBegin", 64, 0, 0, "hierarchy", 1],
+    ["stride", 0, 0, 0, "hierarchy", 1],
+    ["tile", 0, 1, 0, "innerRangeMode", 1],
+  ]) {
+    test(`${dim}D inactive invalid ${field} does not block a valid mapping`, async ({page}) => {
+      const config = {...defaults(dim), hierarchy, innerRangeMode, tileOuterStride: 0, worker: hierarchy ? 4 : 0};
+      await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+      const input = page.locator(`[data-field="${field}"]`).first();
+      await input.fill(String(value));
+      await input.dispatchEvent("change");
+      config[field][0] = value;
+      await expect(page.locator("#status")).toHaveClass(/error/);
+      await expect(page.locator("[data-cell]")).toHaveCount(0);
+
+      const initial = config[control];
+      await page.locator(`#${control}`).selectOption(String(fallback));
+      config[control] = fallback;
+      if (control === "hierarchy") config.worker = fallback ? 4 : 0;
+      await expect(page.locator("#status")).toContainText("Live C++");
+      await assertDrawing(page, config);
+      await page.locator("#share").click();
+      await page.reload();
+      await expect(page.locator("#status")).toContainText("Live C++");
+      await assertDrawing(page, config);
+
+      // Mode switches and shared links preserve inactive edits, rather than silently fixing them.
+      await page.locator(`#${control}`).selectOption(String(initial));
+      await expect(input).toHaveValue(String(value));
+      await expect(page.locator("#status")).toHaveClass(/error/);
+      await expect(page.locator("[data-cell]")).toHaveCount(0);
+    });
+  }
+}
+
+test("both hierarchy levels expose independent IdxRanges and inner tile shorthand remains selectable", async ({page}) => {
+  await ready(page);
+  await page.locator("#tileOuterStride").uncheck();
+  await page.locator("#innerRangeMode").selectOption("1");
+  const config = {...defaults(), innerRangeMode: 1, outerDomainBounds: 0, tileOuterStride: 0,
+    outerBegin: [1, 1], outerEnd: [5, 8], outerStride: [2, 3],
+    innerBegin: [1, 1], innerEnd: [4, 5], innerStride: [2, 2]};
+  for (const field of ["outerBegin", "outerEnd", "outerStride", "innerBegin", "innerEnd", "innerStride"])
+    for (let d = 0; d < 2; ++d) {
+      const input = page.locator(`[data-field="${field}"][data-dimension="${d}"]`);
+      await input.fill(String(config[field][d]));
+      await input.dispatchEvent("change");
+    }
+  await expect(page.locator('[data-field="tile"]').first()).toBeHidden();
+  await assertDrawing(page, config);
+  await page.locator('[data-cell="2,2"]').click();
+  await expect(page.locator(".sum-equation")).toHaveAttribute("data-origin", "1,1");
+  await expect(page.locator(".sum-equation")).toHaveAttribute("data-local", "1,1");
+  await expect(page.locator(".local-inset")).toContainText("Relative inner range");
+  await page.locator("#assignment-details > summary").click();
+  await page.locator("#tab-code").click();
+  await expect(page.locator("#code")).toContainText("IdxRange{Vec{1u, 1u}, Vec{5u, 8u}, Vec{2u, 3u}}");
+  await expect(page.locator("#code")).toContainText("IdxRange{Vec{1u, 1u}, Vec{4u, 5u}, Vec{2u, 2u}}");
+  await expect(page.locator("#code")).toContainText("outerIdx + innerIdx");
+  await page.locator("#innerRangeMode").selectOption("0");
+  await expect(page.locator('[data-field="tile"]').first()).toBeVisible();
+  await expect(page.locator('[data-field="innerBegin"]').first()).toBeHidden();
+  await expect(page.locator("#code")).toContainText("IdxRange{tileExtent}");
+  await assertDrawing(page, {...config, innerRangeMode: 0});
+  await page.locator("#innerRangeMode").selectOption("1");
+  await expect(page.locator('[data-field="innerBegin"][data-dimension="0"]')).toHaveValue("1");
+  await page.locator("#share").click();
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await assertDrawing(page, config);
+  await expect(page.locator("#innerRangeMode")).toHaveValue("1");
+  await expect(page.locator('[data-field="outerStride"][data-dimension="1"]')).toHaveValue("3");
+});
+
+test("empty and invalid independent ranges clear assignments safely", async ({page}) => {
+  const config = {...defaults(), innerRangeMode: 1, tileOuterStride: 0, innerBegin: [2, 0], innerEnd: [2, 4]};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await assertDrawing(page, config);
+  await expect(page.locator("#step-label")).toHaveText("0 / 0");
+  await expect(page.locator("#composition-content")).toContainText("No assignment");
+  const stride = page.locator('[data-field="outerStride"][data-dimension="0"]');
+  await stride.fill("0");
+  await stride.dispatchEvent("change");
+  await expect(page.locator("#status")).toHaveClass(/error/);
+  await expect(page.locator('[data-cell]')).toHaveCount(0);
+  await stride.fill("2");
+  await stride.dispatchEvent("change");
+  const begin = page.locator('[data-field="innerBegin"][data-dimension="0"]');
+  await begin.fill("0");
+  await begin.dispatchEvent("change");
+  await expect(page.locator("#status")).not.toHaveClass(/error/);
+  await assertDrawing(page, {...config, innerBegin: [0, 0]});
+});
+
+test("CPU frame resolution follows the selected executor instead of stale explicit workers", async ({page}) => {
+  await ready(page);
+  await page.locator("#spec").selectOption("1");
+  await page.locator("#api").selectOption("0");
+  await expect(page.locator("#worker-count")).toHaveText("1 workers");
+  await expect(page.locator("#assumption")).toContainText("anyExecutor → cpuSerial");
+  await expect(page.locator("#device-limit-field")).toBeHidden();
+  await assertDrawing(page, {...defaults(), spec: 1, api: 0});
+  await page.locator("#executor").selectOption("2");
+  await expect(page.locator("#worker-count")).toHaveText("4 workers");
+  await assertDrawing(page, {...defaults(), spec: 1, api: 0, executor: 2});
+});
+
+test("oversized resolved launches show their real shape without silently clamping", async ({page}) => {
+  const config = {...defaults(), spec: 1, frames: [64, 64]};
+  await page.goto(`/#${encodeURIComponent(JSON.stringify(config))}`);
+  await expect(page.locator("#status")).toContainText("128 workers; launch was not clamped");
+  await expect(page.locator('[data-field="blocks"][data-dimension="0"]')).toHaveValue("64");
+  await expect(page.locator('[data-worker]')).toHaveCount(0);
+  await expect(page.locator("#launch-summary")).toContainText("blocks (64, 64)");
+});
+
+test("legacy FrameSpec links migrate the shared extent and new links preserve decoupling", async ({page}) => {
+  const legacy = {...defaults(), spec: 1, tile: [3, 4]};
+  delete legacy.frameExtent;
+  delete legacy.coupleTile;
+  delete legacy.maxThreadsPerBlock;
+  delete legacy.frameType;
+  for (const key of ["outerBegin", "outerEnd", "outerStride", "innerBegin", "innerEnd", "innerStride", "innerRangeMode", "outerDomainBounds", "tileOuterStride", "directDomainBounds", "directBegin", "directEnd"])
+    delete legacy[key];
+  await ready(page, `#${encodeURIComponent(JSON.stringify(legacy))}`);
+  await expect(page.locator("#coupleTile")).toHaveCount(0);
+  await expect(page.locator('[data-field="frameExtent"][data-dimension="0"]')).toHaveValue("3");
+  await expect(page.locator('[data-field="tile"][data-dimension="0"]')).toBeEnabled();
+  await expect(page.locator('[data-field="outerStride"][data-dimension="0"]')).toHaveValue("3");
+  await page.locator("#frameType").selectOption("1");
+  await page.locator("#share").click();
+  const shared = JSON.parse(decodeURIComponent(new URL(page.url()).hash.slice(1)));
+  expect(shared.coupleTile).toBeUndefined();
+  expect(shared.outerStride).toEqual([3, 4]);
+  expect(shared.frameExtent).toEqual([3, 4]);
+  expect(shared.frameType).toBe(1);
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await expect(page.locator("#coupleTile")).toHaveCount(0);
+  await expect(page.locator("#frameType")).toHaveValue("1");
+  await expect(page.locator('[data-field="tile"][data-dimension="0"]')).toBeEnabled();
 });
 
 test("shared configuration loads without network services and narrow layouts remain usable", async ({page}) => {
@@ -213,7 +540,7 @@ test("Godbolt validator download is available when the build includes it", async
 });
 
 test("composition stays on the map and shows traced 1D and 2D summands", async ({page}) => {
-  const config = {...defaults(1), end: [32], layout: 1, outerLayout: 1};
+  const config = {...defaults(1), end: [32], outerEnd: [32], layout: 1, outerLayout: 1};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await page.locator('[data-cell="14"]').click();
   await page.mouse.move(0, 0);
@@ -234,7 +561,7 @@ test("composition stays on the map and shows traced 1D and 2D summands", async (
   await page.mouse.move(0, 0);
   await expect(page.locator(".sum-equation")).toHaveAttribute("data-origin", "2,4");
   await expect(page.locator(".sum-equation")).toHaveAttribute("data-local", "1,2");
-  await expect(page.locator(".local-inset svg")).toHaveAttribute("aria-label", "Local index (1, 2) in tile (2, 4)");
+  await expect(page.locator(".local-inset svg")).toHaveAttribute("aria-label", "Inner index (1, 2) in range [(0, 0), (2, 4)), stride (1, 1)");
   await expect(page.locator('[data-worker="14"]')).toBeInViewport();
   await expandTimeline(page);
   await page.locator("#timeline").scrollIntoViewIfNeeded();
@@ -269,7 +596,8 @@ test("hover previews decomposition without changing the pinned selection or curs
 });
 
 test("rendered timeline events match native C++ for nonzero partial tiles", async ({page}) => {
-  const config = {...defaults(), blocks: [1, 1], begin: [1, 2], end: [5, 7], layout: 2, outerLayout: 2};
+  const config = {...defaults(), blocks: [1, 1], begin: [1, 2], end: [5, 7],
+    outerBegin: [1, 2], outerEnd: [5, 7], layout: 2, outerLayout: 2};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await expandTimeline(page);
   const trace = reference(config);
@@ -293,7 +621,7 @@ test("rendered timeline events match native C++ for nonzero partial tiles", asyn
 });
 
 test("stepping paints every worker's cohort and retains reversible, fixed-color history", async ({page}) => {
-  const config = {...defaults(1), end: [32], layout: 1, outerLayout: 1};
+  const config = {...defaults(1), end: [32], outerEnd: [32], layout: 1, outerLayout: 1};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await expandTimeline(page);
   const cell = index => page.locator(`[data-cell="${index}"]`);
@@ -381,7 +709,8 @@ test("playback preserves worker, cell and timeline nodes and keyboard focus", as
 });
 
 test("inspector builds only the visible panel and reuses trace-wide and all-assignment content", async ({page}) => {
-  const config = {...defaults(), blocks: [1, 1], threads: [1, 1], tile: [64, 64], end: [32, 32]};
+  const config = {...defaults(), blocks: [1, 1], threads: [1, 1], tile: [64, 64],
+    outerStride: [64, 64], outerEnd: [32, 32], end: [32, 32]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await expect(page.locator("#table")).toBeEmpty();
   await expect(page.locator("#code")).toBeEmpty();
@@ -430,7 +759,7 @@ test("block filtering and collapsing never change the shared iteration cursor", 
 });
 
 test("playback pauses, stops at the end, and respects reduced motion", async ({page}) => {
-  const config = {...defaults(1), end: [32]};
+  const config = {...defaults(1), end: [32], outerEnd: [32]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await page.clock.install();
   await page.locator("#play").click();
@@ -455,7 +784,7 @@ test("playback pauses, stops at the end, and respects reduced motion", async ({p
 });
 
 test("empty ranges and invalid configurations clear timeline state safely", async ({page}) => {
-  const config = {...defaults(1), begin: [16]};
+  const config = {...defaults(1), begin: [16], outerBegin: [16]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await expandTimeline(page);
   await expect(page.locator("#timeline")).toContainText("All workers are idle");
@@ -470,7 +799,8 @@ test("empty ranges and invalid configurations clear timeline state safely", asyn
 });
 
 test("large timelines are windowed and hierarchical layouts remain narrow-screen safe", async ({page}) => {
-  const config = {...defaults(1), blocks: [1], threads: [1], tile: [1], end: [64]};
+  const config = {...defaults(1), blocks: [1], threads: [1], tile: [1], end: [64],
+    outerEnd: [64], outerStride: [1]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
   await expandTimeline(page);
   await expect(page.locator("[data-event-worker]")).toHaveCount(24);
@@ -661,8 +991,8 @@ test("mobile touch supports cell selection, configuration, workers, and internal
   await expect(page.locator("#worker-pane")).toBeHidden();
   await expect(page.locator("#config-pane")).toBeVisible();
   await page.locator("#spec").selectOption("1");
-  await expect(page.locator("#launch-summary")).toContainText("assumed ThreadSpec");
-  await expect(page.locator("#status")).toContainText("NOT resolved");
+  await expect(page.locator("#launch-summary")).toContainText("derived ThreadSpec");
+  await expect(page.locator("#status")).toContainText("resolved for this device profile");
   await page.locator('#config-pane [data-toggle-pane="config"]').tap();
   await expect(page.locator("#config-pane")).toBeHidden();
   await page.locator("#data").evaluate(data => { data.scrollLeft = data.scrollWidth; });
@@ -706,7 +1036,7 @@ test("height fitting responds to wrapped launch assumptions rather than fixed of
   await page.setViewportSize({width: 1040, height: 1000});
   await ready(page);
   await page.locator("#spec").selectOption("1");
-  await expect(page.locator("#status")).toContainText("NOT resolved");
+  await expect(page.locator("#status")).toContainText("resolved for this device profile");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
   await expect(page.locator("#assignment-details > summary")).toBeInViewport();
 });

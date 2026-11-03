@@ -6,12 +6,14 @@
 #    include "alpaka.hpp"
 #else
 #    include <alpaka/api/host/IdxLayer.hpp>
+#    include <alpaka/api/util.hpp>
 #    include <alpaka/onAcc/Acc.hpp>
 #    include <alpaka/onAcc/WorkerGroup.hpp>
 #    include <alpaka/onAcc/internal/interfaceImpl.hpp>
 #    include <alpaka/onHost/FrameSpec.hpp>
 #endif
 
+#include <array>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -31,7 +33,10 @@ namespace explorer
     {
         int version, dim, spec, api, executor, hierarchy, worker, traversal, layout;
         int outerTraversal, outerLayout, outerWorker;
-        std::vector<int> blocks, threads, frames, tile, begin, end, stride;
+        int maxThreadsPerBlock = 1024, frameType = 0, innerRangeMode = 0;
+        int outerDomainBounds = 0, directDomainBounds = 0, tileOuterStride = 0;
+        std::vector<int> blocks, threads, frames, tile, begin, end, stride, frameExtent;
+        std::vector<int> outerBegin, outerEnd, outerStride, innerBegin, innerEnd, innerStride, directBegin, directEnd;
     };
 
     void require(bool valid, char const* message)
@@ -50,7 +55,31 @@ namespace explorer
                 in >> c.version >> c.dim >> c.spec >> c.api >> c.executor >> c.hierarchy >> c.worker >> c.traversal
                 >> c.layout >> c.outerTraversal >> c.outerLayout >> c.outerWorker),
             "Missing configuration fields");
-        require(c.version == 1, "Unsupported protocol version");
+        require(c.version >= 1 && c.version <= 6, "Unsupported protocol version");
+        int legacyCoupling = 1, legacyOuterTileStride = 0;
+        if(c.version >= 4)
+            require(
+                bool(in >> c.maxThreadsPerBlock >> c.frameType >> c.innerRangeMode),
+                "Missing device profile or inner range mode");
+        else
+        {
+            if(c.version >= 2)
+                require(bool(in >> legacyCoupling >> c.maxThreadsPerBlock), "Missing device profile fields");
+            if(c.version >= 3)
+                require(bool(in >> c.frameType), "Missing frame extent type");
+            require(legacyCoupling == 0 || legacyCoupling == 1, "Invalid legacy tile coupling");
+        }
+        if(c.version >= 6)
+            require(
+                bool(in >> c.outerDomainBounds >> c.directDomainBounds >> c.tileOuterStride),
+                "Missing mapping range links");
+        else if(c.version == 5)
+            require(bool(in >> c.outerDomainBounds >> legacyOuterTileStride), "Missing legacy outer range links");
+        for(auto link : {c.outerDomainBounds, c.directDomainBounds, c.tileOuterStride, legacyOuterTileStride})
+            require(link == 0 || link == 1, "Invalid mapping range link");
+        require(c.frameType == 0 || c.frameType == 1, "Unsupported frame extent type");
+        require(c.innerRangeMode == 0 || c.innerRangeMode == 1, "Unsupported inner range mode");
+        require(c.maxThreadsPerBlock > 0 && c.maxThreadsPerBlock <= 4096, "Device thread limit must be 1 to 4096");
         require(c.dim == 1 || c.dim == 2, "Only 1D and 2D are supported");
         require(c.spec >= 0 && c.spec <= 1 && c.api >= 0 && c.api <= 3, "Unsupported specification or API");
         require(c.executor >= 0 && c.executor <= 6, "Unsupported executor");
@@ -70,21 +99,98 @@ namespace explorer
                 require(value >= 0 && value <= 64, "Vector components must be between 0 and 64");
                 field->push_back(value);
             }
+        if(c.version >= 2)
+            for(int d = 0; d < c.dim; ++d)
+            {
+                int value;
+                require(bool(in >> value) && value > 0 && value <= 64, "Frame extents must be 1 to 64");
+                c.frameExtent.push_back(value);
+            }
+        else
+            c.frameExtent = c.tile; // Legacy links used one value for both concepts.
+        if(c.version >= 4)
+        {
+            for(auto* field : {&c.outerBegin, &c.outerEnd, &c.outerStride, &c.innerBegin, &c.innerEnd, &c.innerStride})
+                for(int d = 0; d < c.dim; ++d)
+                {
+                    int value;
+                    require(bool(in >> value) && value >= 0 && value <= 64, "Range components must be 0 to 64");
+                    field->push_back(value);
+                }
+        }
+        else
+        {
+            // Flatten old coupling once on import; no live connection to launch frames remains.
+            if(c.spec && legacyCoupling)
+                c.tile = c.frameExtent;
+            c.outerBegin = c.begin;
+            c.outerEnd = c.end;
+            c.outerStride = c.tile;
+            c.innerBegin.assign(c.dim, 0);
+            c.innerEnd = c.tile;
+            c.innerStride.assign(c.dim, 1);
+        }
+        if(c.version >= 6)
+        {
+            for(auto* field : {&c.directBegin, &c.directEnd})
+                for(int d = 0; d < c.dim; ++d)
+                {
+                    int value;
+                    require(bool(in >> value) && value >= 0 && value <= 64, "Direct range components must be 0 to 64");
+                    field->push_back(value);
+                }
+        }
+        else
+        {
+            c.directBegin = c.begin;
+            c.directEnd = c.end;
+            if(c.hierarchy && legacyOuterTileStride)
+                c.outerStride = c.tile;
+        }
+        if(!c.hierarchy && c.directDomainBounds)
+        {
+            c.directBegin = c.begin;
+            c.directEnd = c.end;
+        }
+        if(c.hierarchy && c.outerDomainBounds)
+        {
+            c.outerBegin = c.begin;
+            c.outerEnd = c.end;
+        }
+        if(c.hierarchy && c.tileOuterStride)
+            c.tile = c.outerStride;
         in >> std::ws;
         require(in.eof(), "Unexpected trailing fields");
         int workers = 1, cells = 1, threads = 1;
         for(int d = 0; d < c.dim; ++d)
         {
-            require(
-                c.blocks[d] > 0 && c.threads[d] > 0 && c.frames[d] > 0 && c.tile[d] > 0 && c.stride[d] > 0,
-                "Launch extents, tile extents, and strides must be positive");
+            require(c.blocks[d] > 0 && c.threads[d] > 0 && c.frames[d] > 0, "Launch extents must be positive");
             require(c.begin[d] <= c.end[d] && c.end[d] > 0, "Range must satisfy 0 <= begin <= end and end > 0");
+            // Inactive mapping settings are retained for mode switches. Their components
+            // must still be bounded integers, but only active ranges need to be iterable.
+            if(c.hierarchy)
+            {
+                require(c.outerBegin[d] <= c.outerEnd[d], "Outer range requires begin <= end");
+                require(c.outerStride[d] > 0, "Outer range strides must be positive");
+                if(c.innerRangeMode)
+                {
+                    require(c.innerBegin[d] <= c.innerEnd[d], "Inner range requires begin <= end");
+                    require(c.innerStride[d] > 0, "Inner range strides must be positive");
+                }
+                else
+                    require(c.tile[d] > 0, "Mapping tile extents must be positive");
+            }
+            else
+            {
+                require(c.directBegin[d] <= c.directEnd[d], "Direct range requires begin <= end");
+                require(c.stride[d] > 0, "Direct range strides must be positive");
+            }
             workers *= c.blocks[d] * c.threads[d];
             threads *= c.threads[d];
             cells *= c.end[d];
         }
-        require(workers <= 128 && cells <= 1024, "Prototype limit: 128 workers and 1024 data cells");
-        require(c.api != 0 || threads == 1, "Host executors require one thread per block");
+        require((c.spec || workers <= 128) && cells <= 1024, "Prototype limit: 128 workers and 1024 data cells");
+        require(c.spec || c.api != 0 || threads == 1, "Host executors require one thread per block");
         require(
             c.executor == 0 || (c.api == 0 && c.executor <= 3) || c.executor == c.api + 3,
             "Executor is incompatible with the selected API");
@@ -248,18 +354,115 @@ namespace explorer
             << ",\"traversal\":\"" << mapping.traversal << "\",\"layout\":\"" << mapping.layout << "\"}";
     }
 
+    int effectiveExecutor(Config const& c)
+    {
+        // Browser profile: serial-only CPU default; GPU defaults match the selected API.
+        return c.executor ? c.executor : c.api == 0 ? 1 : c.api + 3;
+    }
+
+    constexpr uint32_t cudaCompileLimit
+        = onHost::getMaxThreadsPerBlock(api::cuda, deviceKind::nvidiaGpu, exec::gpuCuda);
+    constexpr uint32_t hipCompileLimit = onHost::getMaxThreadsPerBlock(api::hip, deviceKind::amdGpu, exec::gpuHip);
+#if ALPAKA_LANG_ONEAPI
+    constexpr uint32_t oneApiCompileLimit
+        = onHost::getMaxThreadsPerBlock(api::oneApi, deviceKind::intelGpu, exec::oneApi);
+#else
+    // The oneAPI trait is gated behind the SYCL compiler. Matches api/oneApi/Api.hpp;
+    // this is an explicit browser profile assumption, not a hardware query.
+    constexpr uint32_t oneApiCompileLimit = 1024u;
+#endif
+
+    uint32_t compileThreadLimit(Config const& c)
+    {
+        if(c.api == 0)
+            return 1u;
+        return c.api == 1 ? cudaCompileLimit : c.api == 2 ? hipCompileLimit : oneApiCompileLimit;
+    }
+
+    // Browser controls are runtime values, but CVec values must be template arguments.
+    // Compile all supported 1..64 shapes into a lookup table using alpaka's actual
+    // consteval adjustment. No JS or copied runtime approximation of that algorithm.
+    template<uint32_t Limit, uint32_t D, size_t I>
+    consteval std::array<uint32_t, D> adjustedCVec()
+    {
+        if constexpr(D == 1)
+        {
+            constexpr auto threads = api::util::adjustToLimit<Limit, 0u, 1u>(CVec<uint32_t, I + 1u>{});
+            return {threads[0]};
+        }
+        else
+        {
+            constexpr auto threads
+                = api::util::adjustToLimit<Limit, 0u, 1u>(CVec<uint32_t, I / 64u + 1u, I % 64u + 1u>{});
+            return {threads[0], threads[1]};
+        }
+    }
+
+    template<uint32_t Limit, uint32_t D, size_t... I>
+    consteval auto cvecTable(std::index_sequence<I...>)
+    {
+        return std::array<std::array<uint32_t, D>, sizeof...(I)>{adjustedCVec<Limit, D, I>()...};
+    }
+
+    template<uint32_t Limit, uint32_t D>
+    V<D> cvecThreads(V<D> const& extents)
+    {
+        static constexpr auto table = cvecTable<Limit, D>(std::make_index_sequence<(D == 1 ? 64 : 4096)>{});
+        auto const index = D == 1 ? extents[0] - 1u : (extents[0] - 1u) * 64u + extents[1] - 1u;
+        auto result = V<D>::fill(0);
+        for(uint32_t d = 0; d < D; ++d)
+            result[d] = table[index][d];
+        return result;
+    }
+
+    template<uint32_t D>
+    auto resolveLaunch(Config const& c)
+    {
+        if(!c.spec)
+            return std::pair{vec<D>(c.blocks), vec<D>(c.threads)};
+        auto const one = V<D>::fill(1);
+        auto const frames = vec<D>(c.frames), extents = vec<D>(c.frameExtent);
+        // Mirror the two simple CPU rules in api/host/Device.hpp. Native device
+        // implementations cannot be included in WASM. Real launch tests check parity.
+        if(effectiveExecutor(c) == 1)
+            return std::pair{one, one};
+        if(c.api == 0)
+            return std::pair{frames, one};
+        if(!c.frameType)
+            return std::pair{frames, api::util::adjustToLimit(extents, c.maxThreadsPerBlock)};
+        auto const threads = c.api == 1   ? cvecThreads<cudaCompileLimit>(extents)
+                             : c.api == 2 ? cvecThreads<hipCompileLimit>(extents)
+                                          : cvecThreads<oneApiCompileLimit>(extents);
+        return std::pair{frames, threads};
+    }
+
     template<uint32_t D, typename Api, typename Device>
     std::string trace(Config const& c, Api api, Device device)
     {
-        auto threadSpec = onHost::ThreadSpec{vec<D>(c.blocks), vec<D>(c.threads)};
-        auto blocks = threadSpec.getNumBlocks(), threads = threadSpec.getNumThreads(), tile = vec<D>(c.tile);
+        auto const [blocks, threads] = resolveLaunch<D>(c);
+        auto tile = vec<D>(c.tile);
         auto begin = vec<D>(c.begin), end = vec<D>(c.end), stride = vec<D>(c.stride);
-        // A FrameSpec is retained as input, NOT converted using a made-up backend heuristic.
-        auto frameSpec = onHost::FrameSpec{vec<D>(c.frames), tile};
+        auto frameSpec = onHost::FrameSpec{vec<D>(c.frames), vec<D>(c.frameExtent)};
         std::ostringstream out;
         out << "{\"build\":\"" ALPAKA_MAPPING_BUILD "\",\"schema\":1,\"dim\":" << D << ",\"launchResolution\":\""
-            << (c.spec ? "explicit-assumption" : "explicit-thread-spec") << "\",\"frameCapacity\":";
+            << (c.spec ? "device-profile" : "explicit-thread-spec")
+            << "\",\"effectiveExecutor\":" << effectiveExecutor(c)
+            << ",\"maxThreadsPerBlock\":" << c.maxThreadsPerBlock << ",\"frameType\":" << c.frameType
+            << ",\"threadLimit\":"
+            << (c.frameType ? compileThreadLimit(c)
+                : c.api     ? c.maxThreadsPerBlock
+                            : 1u)
+            << ",\"blocks\":";
+        jsonVec(out, blocks);
+        out << ",\"threads\":";
+        jsonVec(out, threads);
+        out << ",\"frameCapacity\":";
         jsonVec(out, frameSpec.getNumFrames() * frameSpec.getFrameExtents());
+        if(blocks.product() * threads.product() > 128u)
+        {
+            out << ",\"error\":\"Resolved launch exceeds prototype limit of 128 workers; launch was not clamped.\"}";
+            return out.str();
+        }
         out << ",\"workers\":[";
         size_t assignments = 0;
         for(uint32_t b = 0; b < blocks.product(); ++b)
@@ -275,9 +478,10 @@ namespace explorer
                     acc,
                     c.worker,
                     IdxRange{
-                        c.hierarchy ? V<D>::fill(0) : begin,
-                        c.hierarchy ? tile : end,
-                        c.hierarchy ? V<D>::fill(1) : stride},
+                        c.hierarchy ? (c.innerRangeMode ? vec<D>(c.innerBegin) : V<D>::fill(0))
+                                    : vec<D>(c.directBegin),
+                        c.hierarchy ? (c.innerRangeMode ? vec<D>(c.innerEnd) : tile) : vec<D>(c.directEnd),
+                        c.hierarchy ? (c.innerRangeMode ? vec<D>(c.innerStride) : V<D>::fill(1)) : stride},
                     c.traversal,
                     c.layout);
                 Mapping<D> outer;
@@ -285,7 +489,7 @@ namespace explorer
                     outer = map<D>(
                         acc,
                         c.outerWorker ? 3 : 2,
-                        IdxRange{begin, end, tile},
+                        IdxRange{vec<D>(c.outerBegin), vec<D>(c.outerEnd), vec<D>(c.outerStride)},
                         c.outerTraversal,
                         c.outerLayout);
                 else
