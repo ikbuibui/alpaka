@@ -24,6 +24,10 @@ assert.equal(digest.digest("hex"), manifest.sourceHash, "Stale engine: rebuild a
 for (const file of readdirSync(`${here}web`)) {
   assert(readFileSync(`${build}site/${file}`).equals(readFileSync(`${here}web/${file}`)), `Stale site asset: ${file}; rebuild`);
 }
+assert(readFileSync(`${build}site/alpaka.svg`).equals(readFileSync(`${root}docs/logo/alpaka.svg`)),
+  "Stale or missing official logo; rebuild");
+assert(readFileSync(`${build}site/favicon.svg`, "utf8").includes('viewBox="51 12 16 18"'),
+  "Missing generated alpaca favicon; rebuild");
 let wasm;
 if (manifest.wasm) {
   const {default: createEngine} = await import("./build/site/engine.mjs");

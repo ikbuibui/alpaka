@@ -31,6 +31,12 @@ Open **http://127.0.0.1:8000**. Use HTTP, not `file://`, to load the WASM module
 Once built, everything runs locally; no requests go to Godbolt or another service.
 Copy the configuration link to reproduce a configuration on the same build.
 
+The header links to `about.html`, an independent project introduction with official
+alpaka resources, scope limitations, and an explicit non-endorsement notice. The
+build copies the official logo from `docs/logo/alpaka.svg` and derives the favicon
+from its alpaca outline on a transparent background; no external image or font requests are needed. When hosted
+on GitHub Pages, all page and asset links remain relative to the project subpath.
+
 Options:
 
 ```sh
@@ -60,6 +66,16 @@ uses a smaller set of regular headers. The conformance tests compare both routes
 Standard-library SIMD, TBB, and hwloc are disabled for this scalar mapping adapter.
 Emscripten currently warns about unused 32-bit `size_t` hashing in `UniqueId.hpp`;
 the adapter does not instantiate or call `uniqueId`.
+
+## Publishing the standalone site
+
+`.github/workflows/pages.yml` builds with `--single-header` and deploys `build/site`
+on relevant pushes to `vis_plugin`. The conformance workflow also uses
+`--single-header`: both verify the generated-header reference and enable the
+Godbolt validator export. Set **Settings → Pages → Source** to **GitHub Actions**, and allow
+`vis_plugin` in the `github-pages` environment's deployment-branch rules if they
+are restricted. No Sphinx build or merge into the upstream development branch is
+required. The expected project URL is <https://ikbuibui.github.io/alpaka/>.
 
 ## What works
 
@@ -198,7 +214,11 @@ explanation, and local inset to a compact equation row. Its locally remembered s
 survives selection, playback, and configuration changes. Collapsing frees canvas
 height while leaving the tile-origin marker and offset arrow enabled; the separate
 **Composition** checkbox still switches the whole composition visualization off.
-**Reset layout** restores expanded composition and automatic workspace height.
+Its visibility preference is also saved locally and restored into both the checkbox
+and the renderer, so reloads and back navigation cannot leave the control and arrows
+out of sync. This preference is retained across direct/hierarchical mapping changes.
+**Reset layout** re-enables composition, expands its details, and restores automatic
+workspace height.
 
 **The logical iteration timeline is not a device scheduler.** Each column aligns
 one `(outer iteration, inner iteration)` pair across all workers, ordered outer
@@ -424,8 +444,10 @@ The frontend has three separate kinds of data:
   Rendering does not change exploration state. Presentation failures are reported
   separately from rejected engine requests and do not discard the valid trace.
 
-`web/layout.mjs` owns local workspace preferences, not exploration state. Both resize
-axes share pointer/keyboard handling. HTML `data-fit-region` markers declare the
+`web/layout.mjs` owns local workspace preferences, including composition visibility
+and disclosure state. It restores visibility through an application callback so the
+checkbox and exploration state's rendering flag agree. Both resize axes share
+pointer/keyboard handling. HTML `data-fit-region` markers declare the
 regions reserved below the desktop workspace; optional `data-fit-chrome` descendants
 identify their collapsed footprint. Height measurement and observation use the same
 regions; `data-fit-above` marks content whose size changes can move the workspace.
@@ -466,7 +488,7 @@ For an installed Chromium, omit the install command and use
   native C++ traces; test composition, hover previews, shared selection, reversible
   history, playback, reduced motion, filtering, range editing, guards, errors,
   shared configurations, pane resizing/persistence, storage failures, full-width
-  desktops, vertical fit/drag sizing, composition disclosure persistence, 320–900px
+  desktops, vertical fit/drag sizing, composition visibility/disclosure persistence, 320–900px
   layouts, and mobile touch selection. They also check DOM/focus preservation during
   playback and lazy inspector rendering. Fixtures assert uncaught page errors through
   teardown, including touch contexts. Browser results are saved under

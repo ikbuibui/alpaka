@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-:root { color-scheme: light; --ink: #202f40; --muted: #637486; --line: #dce2e8; --accent: #286a85; --paper: #fff; }
+:root { color-scheme: light; --ink: #202f40; --muted: #637486; --line: #dce2e8; --accent: #00599d; --paper: #fff; }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--ink); background: #f3f5f6; font: 14px/1.55 system-ui, sans-serif; }
 button, input, select { font: inherit; }
@@ -13,13 +13,15 @@ input[type="number"] { padding: 6px 8px; width: 76px; min-width: 0; }
 input:disabled { color: #8e9aa6; background: #eff1f3; }
 [hidden] { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.masthead { background: #202f40; color: white; min-height: 48px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 7px 16px; gap: 8px; }
-.brand { font-size: 21px; font-weight: 750; color: white; text-decoration: none; letter-spacing: -.7px; }
-.brand span { color: #aebdc9; font-weight: 400; font-size: 16px; padding-left: 8px; }
-.top-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.top-actions button, .download-link { padding: 5px 9px; font-size: 11px; }
-.download-link { border: 1px solid #cbd4dd; border-radius: 6px; background: white; color: var(--ink); text-decoration: none; }
-.download-link:hover { border-color: var(--accent); background: #eef4f7; }
+.masthead { background: var(--paper); color: var(--ink); border-bottom: 1px solid var(--line); min-height: 54px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 8px 16px; gap: 8px 16px; }
+.brand { display: inline-flex; align-items: center; gap: 14px; color: var(--ink); text-decoration: none; white-space: nowrap; }
+/* The alpaca descends below the wordmark: align the lettering optically. */
+.brand img { display: block; width: 104px; height: 35px; transform: translateY(3px); }
+.brand span { border-left: 1px solid var(--line); padding-left: 14px; font-size: 15px; font-weight: 600; line-height: 24px; }
+.top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.top-actions button, .header-link, .download-link { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 5px 10px; border: 1px solid #cbd4dd; border-radius: 6px; background: var(--paper); color: var(--ink); font-size: 12px; font-weight: 500; line-height: 18px; text-decoration: none; }
+.header-link:hover, .download-link:hover, .header-link[aria-current="page"] { border-color: var(--accent); background: #eef4f7; color: var(--ink); }
+footer a, .text-link { color: var(--accent); text-underline-offset: 3px; }
 /* Fixed small gutters, no article-style width cap: the domain owns the remaining space. */
 main { width: 100%; padding: 10px 16px 16px; }
 .workspace-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
@@ -219,6 +221,40 @@ th { color: var(--muted); font-weight: 500; }
 footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--muted); font-size: 10px; margin-top: 10px; }
 footer summary { font-size: 10px; }
 footer p { max-width: 70ch; overflow-wrap: anywhere; }
+/* Same paper, borders, and typography as the explorer; readable article width. */
+.about-page { max-width: 1040px; margin: 0 auto; padding: 24px 16px 32px; color: var(--ink); font-size: 15px; line-height: 1.75; }
+.about-hero, .about-section { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 28px; margin-bottom: 16px; }
+.eyebrow { color: var(--accent); font-size: 12px; font-weight: 650; margin: 0 0 8px; }
+.about-hero h1 { font-size: clamp(25px, 4vw, 34px); line-height: 1.25; letter-spacing: -.6px; margin: 0 0 16px; }
+.about-lead { font-size: 16px; color: var(--ink); max-width: 75ch; }
+.primary-link { display: inline-flex; align-items: center; gap: 16px; margin-top: 8px; padding: 8px 14px; color: white; background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600; }
+.primary-link:hover { background: #004477; }
+.about-section h2 { font-size: 20px; line-height: 1.4; }
+.about-section > p { max-width: 80ch; }
+.section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.about-logo { display: block; width: 142px; height: 48px; }
+.resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.resource-card { display: block; padding: 16px; background: #f7f9fb; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); text-decoration: none; }
+.resource-card:hover { border-color: var(--accent); background: #eef4f7; }
+.resource-kind { color: #435365; font-size: 12px; }
+.resource-card h3 { color: var(--accent); font-size: 15px; margin: 6px 0; }
+.resource-card p { color: var(--ink); font-size: 14px; margin: 0; }
+.about-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.about-columns h3 { font-size: 15px; margin-bottom: 8px; }
+.about-columns p { margin-top: 0; }
+.about-page code { font-size: .95em; background: #e8eef3; border-radius: 3px; padding: 1px 4px; }
+.independence-note { border-left: 3px solid var(--accent); }
+.about-page footer { font-size: 12px; color: #435365; }
+@media (max-width: 640px) {
+  .brand { gap: 10px; }
+  .brand img { width: 95px; height: 32px; }
+  .brand span { font-size: 14px; padding-left: 10px; }
+  .top-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .top-actions button, .header-link, .download-link { padding-inline: 6px; }
+  .about-page { padding: 16px 8px 24px; }
+  .about-hero, .about-section { padding: 18px; }
+  .resource-grid, .about-columns { grid-template-columns: 1fr; gap: 12px; }
+}
 @media (max-width: 900px) {
   main { padding: 8px; }
   .masthead { padding-inline: 10px; }

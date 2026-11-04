@@ -4,7 +4,7 @@ import {test} from "node:test";
 import {defaultLayout, fitPaneWidths, fitWorkspaceHeight, readLayout} from "./web/layout.mjs";
 
 test("layout defaults favor the domain and do not share mutable preferences", () => {
-  assert.deepEqual(defaultLayout(), {config: 240, workers: 200, height: null, compositionCollapsed: false, collapsed: {config: false, workers: false}});
+  assert.deepEqual(defaultLayout(), {config: 240, workers: 200, height: null, compositionCollapsed: false, showComposition: true, collapsed: {config: false, workers: false}});
   const changed = defaultLayout();
   changed.collapsed.config = true;
   assert.equal(defaultLayout().collapsed.config, false);
@@ -29,6 +29,9 @@ test("saved height and composition preferences migrate old layouts and validate 
   assert.equal(readLayout('{"height":-1}').height, 480);
   assert.equal(readLayout('{"height":999999}').height, 10000);
   assert.equal(readLayout('{"compositionCollapsed":"true"}').compositionCollapsed, false);
+  assert.equal(readLayout('{"showComposition":false}').showComposition, false);
+  for (const value of [null, 0, "false", [], {}])
+    assert.equal(readLayout(JSON.stringify({showComposition: value})).showComposition, true);
 });
 
 test("automatic height fits collapsed chrome without the former 850px cap", () => {

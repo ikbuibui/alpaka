@@ -11,6 +11,7 @@ import shutil
 import subprocess
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -174,6 +175,19 @@ def build_godbolt(args, flags, provenance, site):
     return hashlib.sha256(data).hexdigest()
 
 
+def copy_branding(site):
+    """Reuse the official logo and derive a small icon from its alpaca outline."""
+    logo = ROOT / "docs/logo/alpaka.svg"
+    shutil.copy2(logo, site / "alpaka.svg")
+    namespace = "http://www.w3.org/2000/svg"
+    ET.register_namespace("", namespace)
+    icon = ET.Element(f"{{{namespace}}}svg", {"viewBox": "51 12 16 18"})
+    paths = {path.get("id"): path for path in ET.parse(logo).iter(f"{{{namespace}}}path")}
+    for path_id in ("path819", "path821"):
+        icon.append(paths[path_id])
+    ET.ElementTree(icon).write(site / "favicon.svg", encoding="utf-8", xml_declaration=True)
+
+
 def main():
     """Compile the requested engines and assemble the standalone site."""
     args = options()
@@ -238,6 +252,7 @@ def main():
     for path in (HERE / "web").iterdir():
         if path.is_file():
             shutil.copy2(path, site / path.name)
+    copy_branding(site)
     manifest = {
         "revision": revision,
         "sourceHash": source_hash,

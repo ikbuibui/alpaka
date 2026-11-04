@@ -4,6 +4,58 @@ import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {defaults, ownersOf, serialize} from "./web/model.mjs";
 
+test("branded header links to an independent About page and official resources", async ({page}) => {
+  await ready(page);
+  await expect(page.locator(".masthead")).not.toContainText("Unofficial explorer");
+  const logoBox = await page.locator(".brand img").boundingBox();
+  const titleBox = await page.locator(".brand span").boundingBox();
+  expect(Math.abs(logoBox.y + logoBox.height / 2 - titleBox.y - titleBox.height / 2)).toBeLessThan(5);
+  const aboutLink = page.getByRole("link", {name: "About this explorer", exact: true});
+  const linkContrast = await aboutLink.evaluate(link => {
+    const style = getComputedStyle(link);
+    return {color: style.color, background: style.backgroundColor};
+  });
+  expect(contrast(channels(linkContrast.color), channels(linkContrast.background))).toBeGreaterThan(4.5);
+  await expect.poll(() => page.locator(".brand img").evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+  await page.getByRole("link", {name: "About this explorer", exact: true}).click();
+  await expect(page).toHaveTitle("About · alpaka index lab");
+  await expect(page.getByRole("heading", {name: "An independent companion to alpaka"})).toBeVisible();
+  await expect(page.locator(".independence-note")).toContainText("I am not a core developer or maintainer");
+  await expect(page.locator(".independence-note")).toContainText("not an official alpaka resource or endorsed");
+  for (const href of ["https://github.com/alpaka-group/alpaka", "https://alpaka.readthedocs.io/",
+    "https://alpaka.readthedocs.io/en/latest/doxygen/namespaces.html"])
+    await expect(page.locator(`a[href="${href}"]`)).toBeVisible();
+  const icon = await page.request.get(await page.locator('link[rel="icon"]').getAttribute("href"));
+  expect(icon.ok()).toBe(true);
+  expect(icon.headers()["content-type"]).toContain("image/svg+xml");
+  expect(await icon.text()).not.toContain("<rect");
+  for (const selector of [".about-lead", ".resource-card p", ".independence-note > p:not(.eyebrow)"]) {
+    const colors = await page.locator(selector).first().evaluate(element => ({
+      color: getComputedStyle(element).color,
+      background: getComputedStyle(element.closest("section")).backgroundColor,
+      fontSize: parseFloat(getComputedStyle(element).fontSize),
+    }));
+    expect(contrast(channels(colors.color), channels(colors.background))).toBeGreaterThan(4.5);
+    expect(colors.fontSize).toBeGreaterThanOrEqual(14);
+  }
+  await page.getByRole("link", {name: "Open explorer", exact: true}).click();
+  await expect(page.locator("#status")).toContainText("Live C++");
+});
+
+test("About page works on mobile without loading the mapping engine", async ({touchPage: page}) => {
+  const engineRequests = [];
+  page.on("request", request => {
+    if (/engine\.(mjs|wasm)/.test(request.url())) engineRequests.push(request.url());
+  });
+  await page.goto("/about.html");
+  await expect(page.getByRole("heading", {level: 1})).toBeVisible();
+  await expect(page.locator(".masthead")).not.toContainText("Unofficial explorer");
+  await expect(page.locator(".about-logo")).toBeVisible();
+  expect(await page.locator(".about-logo").evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(engineRequests).toEqual([]);
+});
+
 function reference(config) {
   const result = spawnSync(fileURLToPath(new URL("build/mapping-native", import.meta.url)), [],
     {input: serialize(config) + "\n", encoding: "utf8"});
@@ -1249,6 +1301,57 @@ test("dragging grows all three panes together and double-click restores fit", as
   await page.locator("#height-splitter").dblclick();
   await expect(page.locator("#workspace")).toHaveAttribute("data-height-mode", "fit");
   expect((await page.locator("#workspace").boundingBox()).height).toBe(before);
+});
+
+test("composition checkbox stays synchronized with arrows across reload, navigation and reset", async ({page}) => {
+  await ready(page);
+  const checkbox = page.locator("#show-composition");
+  const arrows = page.locator(".composition-overlay path");
+  await page.locator('[data-cell="3,6"]').click();
+  await page.mouse.move(0, 0);
+  await expect(arrows).toHaveCount(1);
+  await checkbox.uncheck();
+  await expect(arrows).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("alpaka-index-lab.layout.v1")).showComposition)).toBe(false);
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await expect(checkbox).not.toBeChecked();
+  await page.locator('[data-cell="3,6"]').click();
+  await page.mouse.move(0, 0);
+  await expect(arrows).toHaveCount(0);
+  await expect(page.locator("#composition")).toBeHidden();
+  await checkbox.check();
+  await expect(arrows).toHaveCount(1);
+  await page.getByRole("link", {name: "About this explorer", exact: true}).click();
+  await page.goBack();
+  await expect(page.locator("#status")).toContainText("Live C++");
+  await expect(checkbox).toBeChecked();
+  await page.locator('[data-cell="3,6"]').click();
+  await page.mouse.move(0, 0);
+  await expect(arrows).toHaveCount(1);
+  await checkbox.uncheck();
+  await page.locator("#hierarchy").selectOption("0");
+  await page.locator("#hierarchy").selectOption("1");
+  await expect(checkbox).not.toBeChecked();
+  await expect(arrows).toHaveCount(0);
+  await page.locator("#reset-layout").click();
+  await expect(checkbox).toBeChecked();
+  await page.locator('[data-cell="3,6"]').click();
+  await page.mouse.move(0, 0);
+  await expect(arrows).toHaveCount(1);
+});
+
+test("browser-restored checkbox values cannot disagree with composition rendering", async ({page}) => {
+  await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("show-composition").checked = false;
+  }, {once: true}));
+  await ready(page);
+  await expect(page.locator("#show-composition")).toBeChecked();
+  await page.locator('[data-cell="3,6"]').click();
+  await page.mouse.move(0, 0);
+  await expect(page.locator(".composition-overlay path")).toHaveCount(1);
+  await page.locator("#show-composition").uncheck();
+  await expect(page.locator(".composition-overlay path")).toHaveCount(0);
 });
 
 test("composition collapses independently, retains overlays, and remembers the compact equation", async ({page}) => {

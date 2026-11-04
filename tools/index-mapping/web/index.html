@@ -5,14 +5,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>alpaka · Index mapping explorer</title>
-  <link rel="icon" href="data:,">
+  <meta name="description" content="An unofficial, interactive explorer for alpaka index mappings, powered by real C++ compiled to WebAssembly.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.mjs"></script>
 </head>
 <body>
   <header class="masthead" data-fit-above>
-    <a class="brand" href="./">alpaka<span>/ index lab</span></a>
-    <div class="top-actions"><a id="download-validator" class="download-link" href="./godbolt-validation.cpp" download hidden>Download CPU/CUDA validator</a><button id="share" type="button">Copy configuration link</button><button id="reset" type="button">Reset</button></div>
+    <a class="brand" href="./" aria-label="alpaka index lab home"><img src="alpaka.svg" alt="alpaka" width="104" height="35"><span>index lab</span></a>
+    <div class="top-actions"><a class="header-link" href="about.html">About this explorer</a><a id="download-validator" class="download-link" href="./godbolt-validation.cpp" aria-label="Download CPU/CUDA validator" download hidden>CPU/CUDA validator</a><button id="share" type="button" title="Copy configuration link">Copy link</button><button id="reset" type="button">Reset</button></div>
   </header>
   <main>
     <h1 class="sr-only">Index mapping explorer</h1>
@@ -156,7 +157,7 @@
       <div id="table" role="tabpanel" aria-labelledby="tab-table" hidden></div>
       <div id="diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden></div>
     </details>
-    <footer data-fit-region><span data-fit-chrome>Index iteration explorer · not a device scheduler.</span><details><summary data-fit-chrome>Build &amp; provenance</summary><p id="provenance">No external runtime services. No Sphinx dependency.</p></details></footer>
+    <footer data-fit-region><span data-fit-chrome>Unofficial index iteration explorer · not a device scheduler. <a href="about.html">About &amp; attribution</a></span><details><summary data-fit-chrome>Build &amp; provenance</summary><p id="provenance">No external runtime services. No Sphinx dependency.</p></details></footer>
   </main>
 </body>
 </html>

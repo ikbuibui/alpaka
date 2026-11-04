@@ -363,6 +363,11 @@ function render() {
     $("worker-selection").textContent = worker
       ? `Selected: T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}${assignment ? "" : " · Idle at this step"}`
       : "No worker selected";
+    // Browsers can restore form values independently of application state on reload/back.
+    // Always render checkbox state from the same source that drives the SVG overlays.
+    $("show-composition").checked = state.showComposition;
+    $("keep-history").checked = state.keepHistory;
+    $("all-iterations").checked = state.allIterations;
     $("timeline-scope").disabled = !worker;
     $("timeline-scope").value = worker ? state.timelineScope : "all";
     updateIterations();
@@ -559,7 +564,7 @@ $("share").addEventListener("click", async () => {
   catch { status("Configuration is in the address bar. Copy the URL to share it."); }
 });
 if (location.hash) $("preset").value = "custom";
-initializeLayout(render);
+initializeLayout(render, visible => { state.showComposition = visible; });
 updateConfiguration();
 try {
   manifest = await (await fetch("./manifest.json")).json();

@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: MPL-2.0
+name: Deploy index mapping to GitHub Pages
+
+on:
+  push:
+    branches: [vis_plugin]
+    paths:
+      - 'include/**'
+      - 'docs/logo/alpaka.svg'
+      - 'script/create-single-header.sh'
+      - 'tools/index-mapping/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Emscripten SDK
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 4.0.19 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/mapping-emsdk"
+          test "$(git -C "$RUNNER_TEMP/mapping-emsdk" rev-parse HEAD)" = 7b4e60e4bfcba326025e373024369eaa9904af55
+          "$RUNNER_TEMP/mapping-emsdk/emsdk" install 4.0.19
+          "$RUNNER_TEMP/mapping-emsdk/emsdk" activate 4.0.19
+      - name: Build and verify native, WASM and single-header results
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/mapping-emsdk/emsdk_env.sh"
+          python3 tools/index-mapping/build.py --single-header
+          node tools/index-mapping/test.mjs
+          node --test tools/index-mapping/*.test.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/index-mapping/build/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

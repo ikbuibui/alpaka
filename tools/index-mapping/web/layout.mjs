@@ -5,7 +5,7 @@ const bounds = {config: [180, 420], workers: [140, 400]};
 const heightBounds = [480, 10000];
 const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 export const defaultLayout = () => ({config: 240, workers: 200, height: null,
-  compositionCollapsed: false, collapsed: {config: false, workers: false}});
+  compositionCollapsed: false, showComposition: true, collapsed: {config: false, workers: false}});
 
 export function fitWorkspaceHeight(viewportHeight, workspaceTop, reservedHeight) {
   return Math.max(heightBounds[0], Math.floor(viewportHeight - workspaceTop - reservedHeight));
@@ -17,6 +17,7 @@ export function readLayout(raw) {
     const saved = JSON.parse(raw);
     if (Number.isFinite(saved?.height)) state.height = clamp(saved.height, ...heightBounds);
     if (typeof saved?.compositionCollapsed === "boolean") state.compositionCollapsed = saved.compositionCollapsed;
+    if (typeof saved?.showComposition === "boolean") state.showComposition = saved.showComposition;
     for (const key of Object.keys(bounds)) {
       if (Number.isFinite(saved?.[key])) state[key] = clamp(saved[key], ...bounds[key]);
       if (typeof saved?.collapsed?.[key] === "boolean") state.collapsed[key] = saved.collapsed[key];
@@ -50,7 +51,7 @@ function reservedHeight(region) {
     : region.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
 }
 
-export function initializeLayout(onReveal = () => {}) {
+export function initializeLayout(onReveal = () => {}, onCompositionVisibility = () => {}) {
   const $ = id => document.getElementById(id);
   const workspace = $("workspace"), mobile = matchMedia("(max-width: 900px)");
   const regions = [...document.querySelectorAll("[data-fit-region]")];
@@ -63,7 +64,17 @@ export function initializeLayout(onReveal = () => {}) {
     try { localStorage.setItem(layoutStorageKey, JSON.stringify(state)); } catch { /* Storage can be disabled. */ }
   };
   const heightSeparator = $("height-splitter"), composition = $("composition");
-  composition.open = !state.compositionCollapsed;
+  const compositionCheckbox = $("show-composition");
+  function restoreComposition() {
+    compositionCheckbox.checked = state.showComposition;
+    onCompositionVisibility(state.showComposition);
+    composition.open = !state.compositionCollapsed;
+  }
+  restoreComposition();
+  compositionCheckbox.addEventListener("change", () => {
+    state.showComposition = compositionCheckbox.checked;
+    persist();
+  });
   composition.addEventListener("toggle", () => {
     state.compositionCollapsed = !composition.open;
     persist();
@@ -173,7 +184,7 @@ export function initializeLayout(onReveal = () => {}) {
   $("reset-layout").addEventListener("click", () => {
     endDrag();
     state = defaultLayout();
-    composition.open = true;
+    restoreComposition();
     mobileOpen.config = mobileOpen.workers = false;
     persist();
     apply();
