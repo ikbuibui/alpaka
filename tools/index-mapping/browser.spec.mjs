@@ -16,6 +16,18 @@ async function expandTimeline(page) {
     await page.locator("#expand-timeline").click();
 }
 
+const channels = value => value.match(/[\d.]+/g).slice(0, 3).map(Number);
+const luminance = ([r, g, b]) => {
+  const linear = value => { value /= 255; return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4; };
+  return .2126 * linear(r) + .7152 * linear(g) + .0722 * linear(b);
+};
+const contrast = (a, b) => {
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high + .05) / (low + .05);
+};
+// The softened fill is alpha-composited over the white canvas; labels must stay readable.
+const composite = (color, opacity) => color.map(channel => channel * opacity + 255 * (1 - opacity));
+
 async function assertDrawing(page, config, selectedWorker = 0, iteration = null) {
   const trace = reference(config);
   expect(trace.error).toBeUndefined();
@@ -71,6 +83,8 @@ test("selected-thread rings span past, current and future without changing tempo
     .toEqual(new Set(["past", "current", "future"]));
   await expect(selected.locator(".selection-ring")).toHaveCount(await selected.count());
   await expect(selected.locator(".selection-halo")).toHaveCount(await selected.count());
+  await expect(selected.first().locator(".selection-ring")).toHaveCSS("stroke-width", "4px");
+  await expect(selected.first().locator(".selection-halo")).toHaveCSS("stroke-width", "8px");
   await expect(page.locator('[data-highlighted="false"] .selection-ring')).toHaveCount(0);
 
   const fills = () => page.locator("[data-cell]").evaluateAll(cells => cells.map(c =>
@@ -95,6 +109,60 @@ test("selected-thread rings span past, current and future without changing tempo
     reference(config).workers[7].assignments.filter(a => a.inBounds).length);
 });
 
+test("selected-thread indices stay bold while other assigned cells are softened", async ({page}) => {
+  const config = {...defaults(), blocks: [3, 4], end: [12, 16], outerEnd: [12, 16]};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expandTimeline(page);
+  await page.locator("#step-forward").click();
+  await page.mouse.move(0, 0);
+  const selectedKeys = new Set(reference(config).workers[0].assignments.filter(a => a.inBounds)
+    .map(a => a.index.join(",")));
+  const selected = page.locator('[data-emphasis="selected"]');
+  await expect(selected).toHaveCount(selectedKeys.size);
+  for (const key of selectedKeys) await expect(page.locator(`[data-cell="${key}"]`)).toHaveAttribute("data-emphasis", "selected");
+  await expect(selected.locator(".selection-ring")).toHaveCount(selectedKeys.size);
+  await expect(selected.first().locator("text").first()).toHaveCSS("font-weight", "750");
+  await expect(selected.first().locator(".cell-fill")).toHaveCSS("opacity", "1");
+
+  const muted = page.locator('[data-emphasis="muted"]');
+  expect(await muted.count()).toBeGreaterThan(0);
+  expect(new Set(await muted.evaluateAll(cells => cells.map(c => c.dataset.coverage)))).toEqual(new Set(["assigned"]));
+  await expect(muted.first().locator(".cell-fill")).toHaveCSS("opacity", "0.5");
+  await expect(muted.first().locator(".selection-ring")).toHaveCount(0);
+  await expect(page.locator('[data-emphasis="muted"][data-phase="current"] text.on-color').first())
+    .toHaveCSS("fill", "rgb(38, 50, 61)");
+
+  // Every softened cell keeps 4.5:1 label contrast against its composited fill.
+  const labels = await muted.evaluateAll(cells => cells.flatMap(cell => {
+    const text = cell.querySelector("text"), fill = getComputedStyle(cell.querySelector(".cell-fill"));
+    return text ? [{ink: getComputedStyle(text).fill, stroke: getComputedStyle(text).stroke,
+      fill: fill.fill, opacity: Number(fill.opacity)}] : [];
+  }));
+  expect(labels.length).toBeGreaterThan(0);
+  for (const label of labels) {
+    expect(label.stroke).toBe("none");
+    expect(contrast(channels(label.ink), composite(channels(label.fill), label.opacity)), label.fill)
+      .toBeGreaterThanOrEqual(4.5);
+  }
+
+  await page.locator("#all-iterations").uncheck();
+  await expect(page.locator('[data-emphasis="selected"]')).toHaveCount(1);
+  expect(await page.locator('[data-emphasis="muted"]').count()).toBeGreaterThan(0);
+});
+
+test("softening leaves uncovered and outside-target indicators at full strength", async ({page}) => {
+  const config = {...defaults(1), hierarchy: 0, worker: 0, begin: [1], end: [10],
+    directBegin: [1], directEnd: [10], stride: [3]};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  expect(await page.locator('[data-coverage="uncovered"]').count()).toBeGreaterThan(0);
+  expect(await page.locator('[data-coverage="outside"]').count()).toBeGreaterThan(0);
+  for (const coverage of ["uncovered", "outside"])
+    await expect(page.locator(`[data-coverage="${coverage}"][data-emphasis="muted"]`)).toHaveCount(0);
+  await expect(page.locator('[data-coverage="outside"][data-emphasis="selected"]')).toHaveCount(0);
+  await expect(page.locator('[data-coverage="uncovered"] .cell-fill').first()).toHaveCSS("opacity", "1");
+  await expect(page.locator('[data-coverage="outside"] .cell-fill').first()).toHaveCSS("opacity", "1");
+});
+
 test("idle selected threads retain an explicit identity without inventing a footprint", async ({page}) => {
   const config = {...defaults(1), hierarchy: 0, worker: 0, end: [2], directEnd: [2], layout: 1};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
@@ -105,6 +173,7 @@ test("idle selected threads retain an explicit identity without inventing a foot
   await expect(page.locator("#worker-selection")).toContainText("Idle at this step");
   await expect(page.locator(".selection-ring")).toHaveCount(0);
   await expect(page.locator(".assignment-marker")).toHaveCount(0);
+  await expect(page.locator('[data-emphasis="muted"]')).toHaveCount(0);
   await expect(page.locator(`[data-worker="${idle.id}"] .selected-badge`)).toBeVisible();
 });
 

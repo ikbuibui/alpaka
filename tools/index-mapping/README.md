@@ -220,13 +220,17 @@ a worker's next outer iteration is never packed into an exhausted inner-loop gap
 - Use the slider, step buttons, or column headers to move every worker to the same
   logical step. Click an event to select its worker, index, and composition.
   Worker selection never filters other workers' current assignments out of the map.
-  **All assignments of selected worker** controls only that worker's outline overlay
-  (enabled initially, including past, current, and future indices). A dark ring with
-  a white halo identifies selected-thread cells without changing their temporal
-  fills. A small triangle identifies the pinned assignment; a dashed inset ring is
-  only a hover preview and never replaces selection. Worker buttons and timeline
-  rows carry matching dark emphasis and an explicit **Selected** label. The domain
-  header keeps the selected identity visible and reports idle steps.
+  **All assignments of selected worker** (enabled initially) chooses the spotlight
+  set: every past, current, and future index that worker maps. Unchecking it leaves
+  only the pinned assignment emphasized. A dark ring with a white halo identifies
+  spotlighted cells without changing their temporal fills; their coordinate labels
+  are bold, and other assigned cells are softened with dark, readable labels so the
+  selected set reads at a glance. Uncovered hatching, outside-target muting, hover
+  previews, and keyboard focus keep their full strength, and an idle selected thread
+  softens nothing. A small triangle identifies the pinned assignment; a dashed
+  inset ring is only a hover preview and never replaces selection. Worker buttons
+  and timeline rows carry matching dark emphasis and an explicit **Selected** label.
+  The domain header keeps the selected identity visible and reports idle steps.
 - When the timeline is expanded, all blocks are shown initially, with collapsible groups and an optional
   **Selected block** timeline filter. The logical cursor remains global when filtered.
   Timelines show at most 24 columns around the cursor; the slider reaches every step.

@@ -92,9 +92,18 @@ h4 { font-size: 10px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 #data [data-cell] { cursor: pointer; }
 #data [data-cell]:hover > .cell-fill { stroke: #c46b26; stroke-width: 2px; stroke-dasharray: 3 2; }
 .selection-halo, .selection-ring, .preview-ring { fill: none; pointer-events: none; vector-effect: non-scaling-stroke; }
-.selection-halo { stroke: #fff; stroke-width: 7px; }
-.selection-ring { stroke: #17212c; stroke-width: 3px; }
+.selection-halo { stroke: #fff; stroke-width: 8px; }
+.selection-ring { stroke: #17212c; stroke-width: 4px; }
 .preview-ring { stroke: #a54e12; stroke-width: 2px; stroke-dasharray: 3 2; }
+/* Spotlight the selected thread's indices: soften other assigned cells, but keep
+   uncovered/outside-target fills, hover feedback, and keyboard focus untouched.
+   Muted fills are composited over white, so their labels use a dark ink rather
+   than the pre-softening --cell-ink (which may be white). */
+#data [data-emphasis="muted"] .cell-fill, #data [data-emphasis="muted"] .visit-stripe { opacity: .5; }
+#data [data-emphasis="muted"] text { fill: #26323d; paint-order: normal; stroke: none; }
+#data [data-emphasis="muted"] text.on-color { fill: #26323d; stroke: none; }
+#data [data-emphasis="selected"] text { fill: #17212c; font-weight: 750; }
+#data [data-emphasis="selected"] text.on-color { fill: var(--cell-ink, #fff); }
 .assignment-marker { fill: #17212c; stroke: #fff; stroke-width: 1px; pointer-events: none; vector-effect: non-scaling-stroke; }
 .tile-outline { fill: none; stroke: #70869a; stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 12px; color: var(--muted); font-size: 9px; flex: 0 0 auto; }
@@ -105,6 +114,7 @@ h4 { font-size: 10px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .swatch.current { background: hsl(220 65% 42%); }
 .swatch.past { background: hsl(220 24% 79%); }
 .swatch.empty { background: #fff; }
+.swatch.outside { background: #eff1f3; }
 .iteration-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-top: 1px solid var(--line); background: #fbfcfd; padding: 7px 12px; font-size: 10px; flex: 0 0 auto; }
 .iteration-bar label { display: flex; align-items: center; gap: 6px; }
 .iteration-bar input[type="number"] { font-size: 10px; padding: 3px 5px; width: 45px; }

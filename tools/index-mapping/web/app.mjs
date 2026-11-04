@@ -167,6 +167,7 @@ function drawData() {
   const minimumCell = coarsePointer.matches ? 52 : 44;
   const pad = 30, width = cols * cell + pad * 2, height = rows * cell + pad * 2;
   const selected = new Set(assignmentsFor(model, state).filter(a => a.inBounds).map(a => a.index.join(",")));
+  const hasSelection = selected.size > 0;
   const focus = focused();
   const showComposition = config.hierarchy && state.showComposition && focus;
   const step = cursor();
@@ -186,6 +187,8 @@ function drawData() {
     const phase = current.length ? "current" : visits.length ? "past" : "future";
     const paint = current.length ? current : visits;
     const coverage = !valid ? "outside" : !entries.length ? "uncovered" : "assigned";
+    // Only assigned cells are softened; uncovered and outside-target indicators keep their meaning.
+    const emphasis = active ? "selected" : hasSelection && coverage === "assigned" ? "muted" : "";
     const fill = !valid ? "#eff1f3" : !entries.length ? "url(#excluded)"
       : paint.length ? palette.get(paint[0].worker.id)[phase] : "#fff";
     const labelEntry = entries.find(e => e.worker.id === focus?.worker.id && e.assignment === focus.assignment)
@@ -202,7 +205,7 @@ function drawData() {
       <rect class="cell-fill" ${bounds} fill="${fill}" stroke="#d7dce1" stroke-width="1"/>
       ${active ? `<rect class="selection-halo" ${bounds} aria-hidden="true"/><rect class="selection-ring" ${bounds} aria-hidden="true"/>` : ""}
       ${isPreview ? `<rect class="preview-ring" x="${pad + col * cell + 8}" y="${pad + row * cell + 8}" width="${cell - 16}" height="${cell - 16}" rx="3" aria-hidden="true"/>` : ""}
-      ${visits.length > 1 ? visits.slice(-8).map((entry, i, stripes) => `<rect x="${pad + col * cell + 6 + i * (cell - 12) / stripes.length}" y="${pad + row * cell + cell - 10}" width="${(cell - 12) / stripes.length}" height="4" fill="${palette.get(entry.worker.id)[assignmentPhase(entry.assignment, timeline, step)]}"/>`).join("") : ""}
+      ${visits.length > 1 ? visits.slice(-8).map((entry, i, stripes) => `<rect class="visit-stripe" x="${pad + col * cell + 6 + i * (cell - 12) / stripes.length}" y="${pad + row * cell + cell - 10}" width="${(cell - 12) / stripes.length}" height="4" fill="${palette.get(entry.worker.id)[assignmentPhase(entry.assignment, timeline, step)]}"/>`).join("") : ""}
       <text class="${phase === "current" ? "on-color" : ""} ${state.labels === "sum" ? "sum-label" : ""}" x="${pad + col * cell + cell / 2}" y="${pad + row * cell + cell / 2 + 4}" text-anchor="middle">${label}</text>
       ${entries.length > 1 ? `<text class="visit-count ${phase === "current" ? "on-color" : ""}" x="${pad + col * cell + cell - 6}" y="${pad + row * cell + 13}" text-anchor="end">${entries.length}×</text>` : ""}
       ${isFocused ? `<path class="assignment-marker" d="M${pad + col * cell + cell / 2 - 4},${pad + row * cell + 7} h8 l-4,7 Z" aria-hidden="true"/>` : ""}`;
@@ -214,7 +217,7 @@ function drawData() {
       if (cached.content !== content) { cached.node.innerHTML = content; cached.content = content; }
     }
     const cached = dataCells.get(key);
-    cached.attributes = {highlighted: active, phase, coverage, visitCount: visits.length, ink, ariaLabel};
+    cached.attributes = {highlighted: active, emphasis, phase, coverage, visitCount: visits.length, ink, ariaLabel};
   }
   const local = innerRange(config);
   const rangeRect = origin => {
@@ -248,6 +251,7 @@ function drawData() {
   }
   for (const {node, attributes} of dataCells.values()) {
     node.dataset.highlighted = attributes.highlighted;
+    node.dataset.emphasis = attributes.emphasis;
     node.dataset.phase = attributes.phase;
     node.dataset.coverage = attributes.coverage;
     node.dataset.visitCount = attributes.visitCount;
