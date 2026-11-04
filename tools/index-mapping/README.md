@@ -231,11 +231,21 @@ a worker's next outer iteration is never packed into an exhausted inner-loop gap
   inset ring is only a hover preview and never replaces selection. Worker buttons
   and timeline rows carry matching dark emphasis and an explicit **Selected** label.
   The domain header keeps the selected identity visible and reports idle steps.
+  Click the selected worker button or timeline thread header again to deselect it
+  (also works with keyboard activation). With no worker selected, selection rings,
+  softening, and pinned composition/details clear, while the logical cursor and
+  playback colors remain unchanged. The timeline shows all blocks until a worker
+  is selected again; any selected-block filter preference is retained. Clicking
+  a data cell or timeline event selects a worker again rather than toggling it off.
 - When the timeline is expanded, all blocks are shown initially, with collapsible groups and an optional
   **Selected block** timeline filter. The logical cursor remains global when filtered.
   Timelines show at most 24 columns around the cursor; the slider reaches every step.
-- Guard-rejected events are crossed out and remain selectable, but never color
-  processed data cells. Repeated assignments retain a count and ownership stripes
+- Guard-rejected timeline events use neutral gray hatching, dashed borders, a
+  crossed-out index, and an explicit **⊘ Skipped** label in every playback phase,
+  including when history is hidden. A visible key explains that the guard rejected
+  the candidate and the loop body was not executed; plain unfilled tiles still mean
+  future work, and `—` means no assignment. Skipped events remain selectable but
+  never color processed data cells. Repeated assignments retain a count and ownership stripes
   (up to eight recent visits); click a map cell repeatedly to inspect its visits.
   The timeline and Assignments table retain all events, not just the last owner.
 - Playback advances at a fixed presentation cadence, **not simulated execution time**.

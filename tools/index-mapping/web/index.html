@@ -138,8 +138,9 @@
           <label>Show <select id="timeline-scope"><option value="all">All blocks</option><option value="block">Selected block</option></select></label>
         </div>
         <p id="timeline-summary" class="hint" aria-live="polite"></p>
+        <p class="timeline-note timeline-skip-key">⊘ Skipped (hatched) = guard rejected; body not executed · — = no assignment.</p>
         <div id="timeline" class="timeline-scroll" tabindex="0" role="region" aria-label="Worker assignments by logical iteration"></div>
-        <details class="timeline-key"><summary>Legend &amp; interpretation</summary><p class="timeline-note">Vivid = current · muted = past · unfilled = future · dark row borders = selected thread · event ring = focused assignment · — = no assignment · crossed out = rejected by guard. Ten block color families cycle; use labels and selection to distinguish them. Click a column to step, or an event to trace its index.</p></details>
+        <details class="timeline-key"><summary>Legend &amp; interpretation</summary><p class="timeline-note">Vivid = current · muted = past · unfilled = future work · dark row borders = selected thread · event ring = focused assignment · — = no assignment · hatched + Skipped = rejected by guard; body not executed, regardless of playback step. Ten block color families cycle; use labels and selection to distinguish them. Click a column to step, or an event to trace its index.</p></details>
       </div>
     </section>
     <details id="assignment-details" class="panel inspector" data-fit-region>

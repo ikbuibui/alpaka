@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 
 function calculation(config, model, state) {
   const {worker, assignment} = selection(model, state);
+  if (!worker) return '<p class="hint">No worker selected. Select a worker or timeline event to inspect its calculation.</p>';
   const info = worker.inner;
   let html = `<p class="selection-label">Worker T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}</p>`;
   if (config.hierarchy) html += `<div class="calculation-step"><span class="level">1</span><div><h3>Block → outer offset</h3>
@@ -29,6 +30,7 @@ function calculation(config, model, state) {
 }
 
 function assignments(model, state) {
+  if (state.selectedWorker === null) return '<p class="hint">No worker selected. Select a worker or timeline event to view its assignments.</p>';
   const list = assignmentsFor(model, state);
   return `<p class="hint">Selected worker · ${list.length} assignments (including guarded indices)</p><div class="table-scroll"><table><thead><tr><th>Outer</th><th>Inner</th><th>Origin</th><th>Local</th><th>Global</th><th>Guard</th></tr></thead><tbody>${list.map(a =>
     `<tr><td>${a.outerIteration}</td><td>${a.innerIteration}</td><td>${tuple(a.origin)}</td><td>${tuple(a.local)}</td><td>${tuple(a.index)}</td><td>${a.inBounds ? "inside" : "outside"}</td></tr>`).join("")}</tbody></table></div>`;

@@ -18,8 +18,9 @@ export function initializeTimeline(container) {
     const {start, end} = timelineWindow(timeline.steps.length, position);
     const steps = timeline.steps.slice(start, end);
     if (!steps.length) { container.innerHTML = '<p class="hint">All workers are idle.</p>'; return; }
-    const selectedBlock = model.workersById.get(selectedWorker).block.join(",");
-    const key = JSON.stringify([start, end, state.timelineScope === "block" ? selectedBlock : null, [...collapsedBlocks]]);
+    const selectedBlock = model.workersById.get(selectedWorker)?.block.join(",") ?? null;
+    const scopedBlock = state.timelineScope === "block" ? selectedBlock : null;
+    const key = JSON.stringify([start, end, scopedBlock, [...collapsedBlocks]]);
     const selectionChanged = previousWorker !== selectedWorker || previousModel !== model;
     const scrollLeft = container.scrollLeft, scrollTop = container.scrollTop;
     if (previousModel !== model || structure !== key) {
@@ -38,7 +39,7 @@ export function initializeTimeline(container) {
       });
       html += "</tr></thead>";
       for (const [block, workers] of blocks) {
-        if (state.timelineScope === "block" && block !== selectedBlock) continue;
+        if (scopedBlock !== null && block !== scopedBlock) continue;
         const collapsed = collapsedBlocks.has(block);
         html += `<tbody><tr class="timeline-block" style="--block-color:${palette.get(workers[0].id).block}"><th colspan="${steps.length + 1}" scope="rowgroup"><button type="button" data-collapse-block="${block}" aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"} Block ${tuple(workers[0].block)} · ${workers.length} threads</button></th></tr>`;
         if (!collapsed) for (const worker of workers) {
@@ -50,8 +51,8 @@ export function initializeTimeline(container) {
             if (a) html += `<button type="button" data-event-worker="${worker.id}" data-event-step="${n}" data-in-bounds="${a.inBounds}"
               class="timeline-event ${a.inBounds ? "" : "guarded"}"
               style="--event-current:${color.current};--event-past:${color.past};--event-ink:${color.ink}"
-              aria-label="Worker T${worker.id}, index ${tuple(a.index)}, outer ${a.outerIteration}, inner ${a.innerIteration}${a.inBounds ? "" : ", rejected by guard"}"
-              title="${tuple(a.index)} = ${tuple(a.origin)} + ${tuple(a.local)}${a.inBounds ? "" : " · rejected by guard"}">${tuple(a.index)}</button>`;
+              aria-label="Worker T${worker.id}, index ${tuple(a.index)}, outer ${a.outerIteration}, inner ${a.innerIteration}${a.inBounds ? "" : ", skipped: rejected by guard; body not executed"}"
+              title="${tuple(a.index)} = ${tuple(a.origin)} + ${tuple(a.local)}${a.inBounds ? "" : " · skipped: rejected by guard; body not executed"}"><span class="timeline-index">${tuple(a.index)}</span>${a.inBounds ? "" : '<span class="skipped-label" aria-hidden="true">⊘ Skipped</span>'}</button>`;
             else html += '<span class="idle-event" aria-label="No assignment">—</span>';
             html += "</td>";
           });
@@ -77,6 +78,7 @@ export function initializeTimeline(container) {
       const button = row.querySelector("[data-select-worker]");
       if (button.getAttribute("aria-pressed") !== String(selected)) {
         button.setAttribute("aria-pressed", String(selected));
+        button.title = selected ? "Click again to deselect this thread" : "Select this thread";
         button.querySelector("small").innerHTML = `T${id}${selected ? ' · <span class="selected-badge">Selected</span>' : ""}`;
       }
     }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {test} from "node:test";
 import {defaults} from "./web/model.mjs";
 import {assignmentsFor, createExploration, createTraceModel, resetTraceSelection, selectAssignment,
-  selection, selectWorker, setIteration, setStep} from "./web/exploration.mjs";
+  selection, selectWorker, setIteration, setStep, toggleWorker} from "./web/exploration.mjs";
 
 const assignment = (outer, inner, index, inBounds = true) => ({outerIteration: outer,
   innerIteration: inner, index: [index], origin: [outer * 8], local: [index - outer * 8], inBounds});
@@ -32,6 +32,36 @@ test("selection derives from one shared cursor and worker ID, including idle ste
   selectWorker(model, state, 9);
   assert.equal(selection(model, state).assignment, null);
   assert.equal(state.position, 2);
+});
+
+test("worker toggles clear selection and previews without changing the cursor or trace", () => {
+  const {model, state} = fixture();
+  const before = structuredClone(model);
+  setStep(model, state, 1);
+  state.preview = model.owners.get("4")[0];
+  toggleWorker(model, state, 0);
+  assert.equal(state.selectedWorker, null);
+  assert.equal(state.preview, null);
+  assert.equal(state.position, 1);
+  assert.equal(selection(model, state).worker, undefined);
+  assert.equal(selection(model, state).assignment, null);
+  assert.deepEqual(assignmentsFor(model, state), []);
+  state.allIterations = false;
+  assert.deepEqual(assignmentsFor(model, state), []);
+  setStep(model, state, 2);
+  assert.equal(state.selectedWorker, null);
+  resetTraceSelection(model, state);
+  assert.equal(state.selectedWorker, null);
+  assert.deepEqual(model, before);
+  toggleWorker(model, state, 7);
+  assert.equal(state.selectedWorker, 7);
+  toggleWorker(model, state, 0);
+  assert.equal(state.selectedWorker, 0);
+  const entry = model.owners.get("4")[0];
+  selectAssignment(model, state, entry);
+  selectAssignment(model, state, entry);
+  assert.equal(state.selectedWorker, 0); // Event selection is not a toggle.
+  assert.equal(selection(model, state).assignment, entry.assignment);
 });
 
 test("assignment selection and iteration edits use the same cursor, clamping shorter inner loops", () => {

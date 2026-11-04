@@ -4,7 +4,7 @@ import {defaults, eligible, executors, fromHash, innerRange, layouts, linkedRang
 import {assignmentPhase, iterationKey, visibleVisits} from "./visualization.mjs";
 import {initializeTimeline} from "./timeline.mjs";
 import {assignmentsFor, createExploration, createTraceModel, resetTraceSelection, selectAssignment,
-  selection, selectWorker, setIteration, setStep} from "./exploration.mjs";
+  selection, selectWorker, setIteration, setStep, toggleWorker} from "./exploration.mjs";
 import {initializeInspector} from "./inspector.mjs";
 import {initializeLayout} from "./layout.mjs";
 
@@ -143,10 +143,13 @@ function drawWorkers() {
     const id = Number(button.dataset.worker), selected = id === state.selectedWorker;
     if (button.getAttribute("aria-pressed") === String(selected)) continue;
     button.setAttribute("aria-pressed", String(selected));
+    button.title = `Worker ${id}: ${model.workersById.get(id).assignments.length} assignments${selected ? " · Click again to deselect" : ""}`;
     button.classList.toggle("active", selected);
     button.querySelector("small").innerHTML = workerLabel(id);
   }
-  const button = $("workers").querySelector('[aria-pressed="true"]').getBoundingClientRect();
+  const selectedButton = $("workers").querySelector('[aria-pressed="true"]');
+  if (!selectedButton) return;
+  const button = selectedButton.getBoundingClientRect();
   const viewport = $("workers").getBoundingClientRect();
   if (button.top < viewport.top) $("workers").scrollTop -= viewport.top - button.top;
   else if (button.bottom > viewport.top + $("workers").clientHeight)
@@ -283,8 +286,9 @@ function drawComposition() {
   const content = $("composition-content");
   const focus = focused();
   if (!focus) {
-    $("composition-summary").textContent = "No assignment at this step";
-    content.innerHTML = '<p class="hint">No assignment for this worker at the current step. Select another worker or timeline event.</p>';
+    const hasWorker = state.selectedWorker !== null;
+    $("composition-summary").textContent = hasWorker ? "No assignment at this step" : "No worker selected";
+    content.innerHTML = `<p class="hint">${hasWorker ? "No assignment for this worker at the current step. Select another worker or timeline event." : "Select a worker or timeline event to inspect its index composition."}</p>`;
     return;
   }
   const {worker, assignment: a} = focus;
@@ -356,7 +360,11 @@ function render() {
   if (!model) return;
   try {
     const {worker, assignment} = selection(model, state);
-    $("worker-selection").textContent = `Selected: T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}${assignment ? "" : " · Idle at this step"}`;
+    $("worker-selection").textContent = worker
+      ? `Selected: T${worker.id} · Block ${tuple(worker.block)} · Thread ${tuple(worker.thread)}${assignment ? "" : " · Idle at this step"}`
+      : "No worker selected";
+    $("timeline-scope").disabled = !worker;
+    $("timeline-scope").value = worker ? state.timelineScope : "all";
     updateIterations();
     drawWorkers();
     drawData();
@@ -435,7 +443,7 @@ $("workers").addEventListener("click", event => {
   const button = event.target.closest("[data-worker]");
   if (!button || !model) return;
   stopPlayback();
-  selectWorker(model, state, Number(button.dataset.worker));
+  toggleWorker(model, state, Number(button.dataset.worker));
   render();
 });
 function selectCell(event) {
@@ -495,7 +503,7 @@ $("timeline").addEventListener("click", event => {
     const key = button.dataset.collapseBlock;
     if (state.collapsedBlocks.has(key)) state.collapsedBlocks.delete(key); else state.collapsedBlocks.add(key);
   } else if (button.dataset.selectWorker !== undefined) {
-    selectWorker(model, state, Number(button.dataset.selectWorker));
+    toggleWorker(model, state, Number(button.dataset.selectWorker));
   } else {
     const step = Number(button.dataset.eventStep ?? button.dataset.step);
     if (button.dataset.eventWorker !== undefined)

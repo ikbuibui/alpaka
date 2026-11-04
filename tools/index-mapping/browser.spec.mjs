@@ -58,6 +58,67 @@ test("SVG ownership and worker selection agree with native C++", async ({page}) 
   await assertDrawing(page, config, 7, {outer: 0, inner: 1});
 });
 
+test("selected worker buttons toggle off without changing iteration or temporal colors", async ({page}) => {
+  await ready(page);
+  await expandTimeline(page);
+  await page.locator("#timeline-step").fill("1");
+  await page.locator("#assignment-details > summary").click();
+  const fills = () => page.locator("[data-cell]").evaluateAll(cells => cells.map(cell =>
+    [cell.dataset.cell, cell.dataset.phase, cell.querySelector(".cell-fill").getAttribute("fill")]));
+  const before = await fills();
+  await page.locator('[data-worker="0"]').click();
+  await expect(page.locator('[data-worker][aria-pressed="true"]')).toHaveCount(0);
+  await expect(page.locator("#worker-selection")).toHaveText("No worker selected");
+  await expect(page.locator(".selection-ring, .assignment-marker, .selected-row, .selected-event")).toHaveCount(0);
+  await expect(page.locator('[data-emphasis="muted"], [data-highlighted="true"]')).toHaveCount(0);
+  await expect(page.locator("#composition-summary")).toHaveText("No worker selected");
+  await expect(page.locator("#calculation")).toContainText("No worker selected");
+  await page.locator("#tab-table").click();
+  await expect(page.locator("#table")).toContainText("No worker selected");
+  await expect(page.locator("#timeline-step")).toHaveValue("1");
+  expect(await fills()).toEqual(before);
+  await expect(page.locator("#timeline-scope")).toBeDisabled();
+  await page.locator("#step-back").click();
+  await expect(page.locator("#worker-selection")).toHaveText("No worker selected");
+  await page.locator('[data-worker="7"]').focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-worker="7"]')).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-worker="7"]')).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator('[data-worker="7"]')).toBeFocused();
+  await page.locator('[data-cell="3,6"]').click();
+  await expect(page.locator('[data-worker][aria-pressed="true"]')).toHaveCount(1);
+  await expect(page.locator(".selection-ring").first()).toBeVisible();
+});
+
+test("timeline thread headers deselect safely with a selected-block filter", async ({page}) => {
+  await ready(page);
+  await expandTimeline(page);
+  await page.locator('[data-worker="7"]').click();
+  await page.locator("#timeline-scope").selectOption("block");
+  await expect(page.locator("[data-timeline-worker]")).toHaveCount(4);
+  await page.locator('[data-select-worker="7"]').click();
+  await expect(page.locator("#worker-selection")).toHaveText("No worker selected");
+  await expect(page.locator("[data-timeline-worker]")).toHaveCount(16);
+  await expect(page.locator("#timeline-scope")).toHaveValue("all");
+  await expect(page.locator("#timeline-scope")).toBeDisabled();
+  await expect(page.locator(".selected-row, .selected-event")).toHaveCount(0);
+  await expect(page.locator('[data-select-worker="7"]')).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#worker-selection")).toContainText("Selected: T7");
+  await expect(page.locator("#timeline-scope")).toHaveValue("block");
+  await expect(page.locator("#timeline-scope")).toBeEnabled();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#worker-selection")).toHaveText("No worker selected");
+  await page.locator("#preset").selectOption("uneven");
+  await expect(page.locator("#worker-selection")).toHaveText("No worker selected");
+  const event = page.locator('[data-event-worker="7"]').first();
+  await event.click();
+  await expect(page.locator("#worker-selection")).toContainText("Selected: T7");
+  await event.click(); // Assignment inspection should not toggle a worker off.
+  await expect(page.locator("#worker-selection")).toContainText("Selected: T7");
+});
+
 test("workers with repeated block colors remain independently selectable", async ({page}) => {
   const config = {...defaults(), blocks: [3, 4], end: [12, 16], outerEnd: [12, 16]};
   await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
@@ -677,7 +738,7 @@ test("rendered timeline events match native C++ for nonzero partial tiles", asyn
   });
   const events = await page.locator("[data-event-worker]").evaluateAll(buttons => buttons.map(b => ({
     worker: Number(b.dataset.eventWorker), step: Number(b.dataset.eventStep),
-    index: b.textContent, inBounds: b.dataset.inBounds === "true",
+    index: b.querySelector(".timeline-index").textContent, inBounds: b.dataset.inBounds === "true",
   })));
   expect(events.length).toBe(trace.workers.reduce((sum, w) => sum + w.assignments.length, 0));
   for (const event of events) {
@@ -738,6 +799,44 @@ test("guarded events remain inspectable but do not color processed cells", async
     && a.outerIteration === outer && a.innerIteration === inner).map(a => a.index.join(","))));
   const painted = await page.locator('[data-cell][data-phase="current"]').evaluateAll(cells => cells.map(c => c.dataset.cell));
   expect(new Set(painted)).toEqual(valid);
+});
+
+test("skipped timeline work stays distinct from future work in every playback phase", async ({page}) => {
+  const config = {...defaults(), end: [3, 31], outerEnd: [4, 32]};
+  await ready(page, `#${encodeURIComponent(JSON.stringify(config))}`);
+  await expandTimeline(page);
+  const guarded = page.locator(".timeline-event.guarded.future").first();
+  const worker = await guarded.getAttribute("data-event-worker");
+  const step = Number(await guarded.getAttribute("data-event-step"));
+  const skipped = page.locator(`[data-event-worker="${worker}"][data-event-step="${step}"]`);
+  const futureWork = page.locator('.timeline-event.future[data-in-bounds="true"]').first();
+  await expect(futureWork).toHaveCSS("background-image", "none");
+  await expect(futureWork).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(futureWork.locator(".skipped-label")).toHaveCount(0);
+  await expect(page.locator(".timeline-skip-key")).toBeVisible();
+  await expect(page.locator(".timeline-skip-key")).toContainText("body not executed");
+  const hatch = await skipped.evaluate(button => getComputedStyle(button).backgroundImage);
+  expect(hatch).toContain("repeating-linear-gradient");
+  expect(Number(await page.locator("#timeline-step").getAttribute("max"))).toBeGreaterThan(step);
+  for (const [position, phase] of [[0, "future"], [step, "current"], [step + 1, "past"]]) {
+    await page.locator("#timeline-step").fill(String(position));
+    await expect(skipped).toHaveAttribute("data-phase", phase);
+    await expect(skipped).toHaveCSS("background-image", hatch);
+    await expect(skipped).toHaveCSS("border-style", "dashed");
+    await expect(skipped.locator(".timeline-index")).toHaveCSS("text-decoration-line", "line-through");
+    await expect(skipped.locator(".skipped-label")).toHaveText("⊘ Skipped");
+    await expect(skipped.locator(".skipped-label")).toHaveCSS("text-decoration-line", "none");
+    await expect(skipped).toHaveAttribute("aria-label", /skipped: rejected by guard; body not executed/);
+  }
+  await page.locator("#keep-history").uncheck();
+  await expect(skipped).toHaveClass(/hide-history/);
+  await expect(skipped).toHaveCSS("background-image", hatch);
+  await skipped.focus();
+  await expect(skipped).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(skipped).toHaveClass(/selected-event/);
+  await expect(skipped).toHaveCSS("outline-style", "solid");
+  await expect(skipped).toHaveCSS("background-image", hatch);
 });
 
 test("repeated assignments retain multiple visits and cycle through their owners", async ({page}) => {

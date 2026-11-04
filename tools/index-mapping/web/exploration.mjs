@@ -40,13 +40,17 @@ export function selection(model, state) {
 
 export function assignmentsFor(model, state) {
   const {worker, assignment} = selection(model, state);
-  return state.allIterations ? worker.assignments : assignment ? [assignment] : [];
+  return state.allIterations ? worker?.assignments ?? [] : assignment ? [assignment] : [];
 }
 
 export function selectWorker(model, state, id) {
-  if (!model.workersById.has(id)) return;
+  if (id !== null && !model.workersById.has(id)) return;
   state.selectedWorker = id;
   state.preview = null;
+}
+
+export function toggleWorker(model, state, id) {
+  selectWorker(model, state, state.selectedWorker === id ? null : id);
 }
 
 export function setStep(model, state, position) {
@@ -68,6 +72,7 @@ export function setIteration(model, state, name, value) {
 }
 
 export function resetTraceSelection(model, state) {
-  if (!model.workersById.has(state.selectedWorker)) state.selectedWorker = model.trace.workers[0].id;
+  if (state.selectedWorker !== null && !model.workersById.has(state.selectedWorker))
+    state.selectedWorker = model.trace.workers[0].id;
   setStep(model, state, 0);
 }
